@@ -9,7 +9,8 @@ public enum ARWMetadataReader {
     static let maxReadSize = 8 * 1024 * 1024
 
     /// ファイルの先頭から必要な分だけ読んでメタデータを返す。
-    /// MakerNote まで届かなければ、読む量を増やして再挑戦する。
+    /// ExifIFD・日時・MakerNote がバッファの外にあるときだけ、そこまで読み足して再挑戦する
+    /// （タグが無いことを理由に読み増さない。外付け HDD ではファイルごとの読み取り量がそのまま開く時間になる）。
     public static func read(url: URL) throws -> PhotoMetadata {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
@@ -20,7 +21,7 @@ public enum ARWMetadataReader {
         }
     }
 
-    /// 読み取り関数を注入できる本体。読み取りが空を返したら EOF とみなし、そこまでの解析結果を返す。
+    /// 読み取り関数を注入できる本体。読み取りが要求より短ければ EOF とみなし、そこまでの解析結果を返す。
     static func read(fileSize declaredSize: Int,
                      readAt: (_ offset: Int, _ count: Int) throws -> Data) throws -> PhotoMetadata {
         var fileSize = declaredSize
@@ -31,22 +32,25 @@ public enum ARWMetadataReader {
         while true {
             // 先頭から読み直さず、足りない差分だけを追加で読む
             if bytes.count < request {
-                let more = try readAt(bytes.count, request - bytes.count)
-                if more.isEmpty {
+                let wanted = request - bytes.count
+                let more = try readAt(bytes.count, wanted)
+                bytes.append(contentsOf: more.prefix(wanted))
+                if more.count < wanted {
                     reachedEOF = true
                     fileSize = bytes.count
                     request = bytes.count
-                } else {
-                    bytes.append(contentsOf: more)
                 }
             }
-            guard var result = parse(bytes: bytes, fileSize: fileSize) else { throw MetadataError.notTIFF }
-            let complete = result.releaseMode != nil && result.captureDate != nil
-            if complete || reachedEOF || bytes.count >= fileSize || request >= maxReadSize {
+            guard let (parsed, neededEnd) = parseDetailed(bytes: bytes, fileSize: fileSize) else {
+                throw MetadataError.notTIFF
+            }
+            var result = parsed
+            let next = min(neededEnd, fileSize, maxReadSize)
+            if next <= bytes.count || reachedEOF || bytes.count >= fileSize {
                 if let p = result.mpfPreview, !p.fits(inFileOfSize: fileSize) { result.mpfPreview = nil }
                 return result
             }
-            request = min(request * 4, fileSize, maxReadSize)
+            request = next
         }
     }
 
@@ -56,6 +60,11 @@ public enum ARWMetadataReader {
     }
 
     static func parse(bytes: [UInt8], fileSize: Int? = nil) -> PhotoMetadata? {
+        parseDetailed(bytes: bytes, fileSize: fileSize)?.metadata
+    }
+
+    /// 解析結果と、ExifIFD・日時・MakerNote をすべて読むのに必要なバイト数（先頭から）を返す
+    static func parseDetailed(bytes: [UInt8], fileSize: Int? = nil) -> (metadata: PhotoMetadata, neededEnd: Int)? {
         guard let tiff = TIFFReader(data: bytes, base: 0),
               let ifd0Off = tiff.firstIFDOffset,
               let (ifd0, next) = tiff.readIFD(atOffset: ifd0Off) else { return nil }
@@ -80,8 +89,12 @@ public enum ARWMetadataReader {
         m.mpfPreview = previews.max { $0.length < $1.length }
         // 幅・高さは IFD0 が RAW 本体でないことがあるので、ExifIFD の値だけを使う
 
-        guard let pe = ifd0.entry(0x8769), let exifOff = tiff.firstInt(pe),
-              let (exif, _) = tiff.readIFD(atOffset: exifOff) else { return m }
+        guard let pe = ifd0.entry(0x8769), let exifOff = tiff.firstInt(pe) else { return (m, 0) }
+        // ExifIFD のエントリ数すら読めないときは、ExifIFD の先頭から 64KB を読めば足りるとみなす
+        guard var needed = tiff.neededEnd(ofIFDAtAbsolute: exifOff, tags: [0x9003, 0x9011, 0x9291, 0x927C]) else {
+            return (m, exifOff + 64 * 1024)
+        }
+        guard let (exif, _) = tiff.readIFD(atOffset: exifOff) else { return (m, needed) }
 
         if let e = exif.entry(0xA002), let w = tiff.firstInt(e) { m.imageWidth = w }
         if let e = exif.entry(0xA003), let h = tiff.firstInt(e) { m.imageHeight = h }
@@ -93,13 +106,19 @@ public enum ARWMetadataReader {
         }
 
         if let e = exif.entry(0x927C),
+           let ifd = SonyMakerNote.ifdStart(tiff: tiff, start: e.valueIndex, length: e.count),
+           let noteNeeded = tiff.neededEnd(ofIFDAtAbsolute: ifd, tags: SonyMakerNote.outOfLineTags) {
+            // FocusLocation などの値は MakerNote の外（TIFF 基準のオフセット）を指すことがある
+            needed = max(needed, noteNeeded)
+        }
+        if let e = exif.entry(0x927C),
            let v = SonyMakerNote.parse(tiff: tiff, start: e.valueIndex, length: e.count) {
             m.releaseMode = v.releaseMode
             m.sequenceNumber = v.sequenceNumber
             m.focusLocation = v.focusLocation
             m.focusFrameSize = v.focusFrameSize
         }
-        return m
+        return (m, needed)
     }
 
     /// JpgFromRawStart（0x0201）/ JpgFromRawLength（0x0202）から範囲を作る。

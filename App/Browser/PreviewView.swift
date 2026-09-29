@@ -37,7 +37,6 @@ struct PreviewView: View {
                             case .ended: model.endPinch()
                             }
                         })
-                        .opacity(model.currentDecision == .rejected ? 0.4 : 1)
                         .accessibilityLabel(accessibilityText)
                     if model.displayBody == nil && model.displayPreview == nil {
                         ProgressView().controlSize(.small)
@@ -46,7 +45,6 @@ struct PreviewView: View {
 
                 if model.showFocusFrame {
                     FocusFrameOverlay(focus: model.currentFocus, geometry: model.geometry)
-                        .opacity(model.currentDecision == .rejected ? 0.4 : 1)
                 }
 
                 // 拡大中は写真がツールバーの下まで来るので、タイトル・進捗が読めるよう上端に控えめな黒を重ねる
@@ -121,21 +119,68 @@ struct PreviewView: View {
     }
 
     private var zoomControls: some View {
-        HStack(spacing: 8) {
-            if !model.zoom.isFit {
-                badge { Text(zoomLabel).monospacedDigit() }
+        VStack(alignment: .trailing, spacing: 8) {
+            decisionSegment
+            HStack(spacing: 8) {
+                if !model.zoom.isFit {
+                    badge { Text(zoomLabel).monospacedDigit() }
+                }
+                Button {
+                    model.moveToFocus()
+                } label: {
+                    Label("フォーカス位置へ", systemImage: "scope")
+                }
+                .buttonStyle(.glass)
+                .help(model.currentFocus.hasFocusPosition
+                      ? "ソニーのフォーカス位置を拡大表示します（F）"
+                      : "フォーカス位置がないので、中心を拡大表示します（F）")
             }
-            Button {
-                model.moveToFocus()
-            } label: {
-                Label("フォーカス位置へ", systemImage: "scope")
-            }
-            .buttonStyle(.glass)
-            .help(model.currentFocus.hasFocusPosition
-                  ? "ソニーのフォーカス位置を拡大表示します（F）"
-                  : "フォーカス位置がないので、中心を拡大表示します（F）")
         }
         .font(.callout.weight(.medium))
+    }
+
+    /// 採用 / 不採用の切り替え。選ばれている方を押すと未判定に戻る。次のコマへは進まない。
+    private var decisionSegment: some View {
+        HStack(spacing: 2) {
+            segmentButton(.picked, title: "採用", systemImage: "checkmark.circle.fill", tint: .green, key: "P",
+                          help: "採用にします。もう一度押すと未判定に戻します（P）")
+            segmentButton(.rejected, title: "不採用", systemImage: "xmark.circle.fill", tint: .red, key: "X",
+                          help: "不採用にします。もう一度押すと未判定に戻します（X）")
+        }
+        .padding(3)
+        .glassEffect(.regular, in: .capsule)
+        .disabled(model.currentItem == nil)
+    }
+
+    private func segmentButton(_ decision: Decision, title: String, systemImage: String,
+                               tint: Color, key: String, help: String) -> some View {
+        let selected = model.currentDecision == decision
+        return Button {
+            model.toggleDecision(decision)
+        } label: {
+            HStack(spacing: 6) {
+                Label(title, systemImage: systemImage)
+                keyCap(key, selected: selected)
+            }
+            .foregroundStyle(selected ? Color.white : Color.primary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .background(selected ? tint.opacity(0.85) : .clear, in: .capsule)
+            .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    /// ショートカットキーの表示（キーキャップ風の小さな枠）
+    private func keyCap(_ key: String, selected: Bool) -> some View {
+        Text(key)
+            .font(.caption2.weight(.semibold).monospaced())
+            .opacity(0.75)
+            .frame(minWidth: 16, minHeight: 16)
+            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(.primary.opacity(selected ? 0.6 : 0.35), lineWidth: 1))
+            .accessibilityHidden(true)
     }
 
     private var zoomLabel: String {

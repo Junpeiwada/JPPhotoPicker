@@ -42,10 +42,10 @@ struct BrowserCommands: Commands {
         }
 
         CommandMenu("選別") {
-            Button("採用して次へ") { model?.decide(.picked) }
+            Button("採用") { model?.toggleDecision(.picked) }
                 .keyboardShortcut("p", modifiers: [])
                 .disabled(!canOperate)
-            Button("不採用にして次へ") { model?.decide(.rejected) }
+            Button("不採用") { model?.toggleDecision(.rejected) }
                 .keyboardShortcut("x", modifiers: [])
                 .disabled(!canOperate)
             Button("判定を解除") { model?.clearDecision() }
@@ -61,10 +61,10 @@ struct BrowserCommands: Commands {
                 .keyboardShortcut(.rightArrow, modifiers: [])
                 .disabled(!canOperate)
             Button("前のグループ") { model?.previousGroup() }
-                .keyboardShortcut(.upArrow, modifiers: [])
+                .keyboardShortcut(.leftArrow, modifiers: .shift)
                 .disabled(!canOperate)
             Button("次のグループ") { model?.nextGroup() }
-                .keyboardShortcut(.downArrow, modifiers: [])
+                .keyboardShortcut(.rightArrow, modifiers: .shift)
                 .disabled(!canOperate)
 
             Divider()

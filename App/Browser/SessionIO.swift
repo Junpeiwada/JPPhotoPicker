@@ -24,7 +24,8 @@ final class SessionSaver: Sendable {
 
 /// フォルダを開いたときの読み込み結果
 struct FolderLoadOutcome: Sendable {
-    var groups: [PhotoGroup] = []
+    /// 走査したコマ（メタデータは未読み取り）。ファイル名順
+    var items: [PhotoItem] = []
     var session = SessionData()
     /// フォルダの走査に失敗したときのメッセージ
     var scanError: String?
@@ -38,16 +39,15 @@ struct FolderLoadOutcome: Sendable {
 
 /// 協調プールを占有しない（`@concurrent`）読み込み・書き込み
 enum SessionIO {
-    /// 走査 → メタデータ → グループ化 → 保存ファイルの読み込み → ジャーナルの復旧確認。キャンセルされたら nil。
+    /// 走査 → 保存ファイルの読み込み → ジャーナルの復旧確認。キャンセルされたら nil。
+    /// メタデータは読まない（すぐ一覧を出すため。`loadMetadata` で後から読む）。
     @concurrent
     static func load(folder: URL, store: SessionStore) async -> FolderLoadOutcome? {
         var out = FolderLoadOutcome()
         do {
             try Task.checkCancellation()
-            let scanned = try FolderScanner.scan(folder: folder)
-            let items = await PhotoMetadataLoader.load(items: scanned)
+            out.items = try FolderScanner.scan(folder: folder)
             try Task.checkCancellation()
-            out.groups = BurstGrouper.group(items)
         } catch is CancellationError {
             return nil
         } catch {
@@ -87,6 +87,21 @@ enum SessionIO {
             out.recovery = ApplyEngine(folder: folder).recoverJournal()
         }
         return out
+    }
+
+    /// 全コマのメタデータを読む。キャンセルされたら nil。
+    /// - Parameter progress: 読み終えた累計コマ数（任意のスレッドから、順不同で呼ばれる）
+    @concurrent
+    static func loadMetadata(items: [PhotoItem],
+                             progress: @escaping @Sendable (Int) -> Void) async -> [PhotoItem]? {
+        let loaded = await PhotoMetadataLoader.load(items: items, progress: { done, _ in progress(done) })
+        return Task.isCancelled ? nil : loaded
+    }
+
+    /// 1 コマのメタデータを読む（読み込み中に、表示中のコマだけ先に読むため）
+    @concurrent
+    static func readMetadata(_ item: PhotoItem) async -> PhotoMetadata? {
+        PhotoMetadataLoader.defaultReader(item)
     }
 
     /// デバウンス後の保存。失敗したらそのエラーを返す。

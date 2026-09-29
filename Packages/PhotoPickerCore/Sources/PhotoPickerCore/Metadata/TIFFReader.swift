@@ -86,6 +86,23 @@ struct TIFFReader: Sendable {
         return (result, next)
     }
 
+    /// 絶対添字 `ifd` にある IFD の終わり（次の IFD へのオフセットの直後）と、`tags` の値の終わりのうち最大の絶対添字。
+    /// 値がバッファ外にあって `readIFD` が読み飛ばすエントリも数える（あとどこまで読めば足りるかを知るため）。
+    /// エントリ数すら読めなければ nil。
+    func neededEnd(ofIFDAtAbsolute ifd: Int, tags: Set<Int>) -> Int? {
+        guard let n = u16(ifd), n < 2000 else { return nil }
+        var end = ifd + 2 + n * 12 + 4
+        for k in 0..<n {
+            let pos = ifd + 2 + k * 12
+            guard let tag = u16(pos) else { break }
+            guard tags.contains(tag), let type = u16(pos + 2), let count = u32(pos + 4) else { continue }
+            let bytes = Self.typeSize(type) * count
+            guard bytes > 4, let off = u32(pos + 8) else { continue }
+            end = max(end, base + off + bytes)
+        }
+        return end
+    }
+
     /// TIFF ヘッダー基準のオフセットで IFD を読む
     func readIFD(atOffset off: Int) -> (entries: [IFDEntry], next: Int?)? {
         readIFD(atAbsolute: base + off)

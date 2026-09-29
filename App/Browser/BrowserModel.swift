@@ -21,6 +21,10 @@ final class BrowserModel {
     // MARK: フォルダ
     private(set) var folderURL: URL?
     private(set) var isLoading = false
+    /// 一覧を出した後、メタデータを読んでいる間は true（連写グループは読み終えてから組む）
+    private(set) var isLoadingMetadata = false
+    /// メタデータを読み終えたコマ数
+    private(set) var metadataLoadedCount = 0
     private(set) var errorMessage: String?
 
     // MARK: コマ
@@ -86,6 +90,8 @@ final class BrowserModel {
     private var previewTask: Task<Void, Never>?
     private var bodyTask: Task<Void, Never>?
     private var openTask: Task<Void, Never>?
+    private var metadataTask: Task<Void, Never>?
+    private var currentMetadataTask: Task<Void, Never>?
 
     init() {
         PreferenceKey.register()
@@ -104,12 +110,19 @@ final class BrowserModel {
     /// 適用・取り消しの実行中（操作を受け付けない）
     var isBusy: Bool { busyMessage != nil }
     /// 直近の適用を取り消せるか
-    var canUndoApply: Bool { !isBusy && !isLoading && !isSessionReadOnly && session.applied.last != nil }
-    /// 適用できるか（読み取り専用のセッションでは適用しない。記録を保存できず、取り消せなくなるため）
-    var canApply: Bool { hasEntries && !isBusy && !isSessionReadOnly }
+    var canUndoApply: Bool {
+        !isBusy && !isLoading && !isLoadingMetadata && !isSessionReadOnly && session.applied.last != nil
+    }
+    /// 適用できるか（読み取り専用のセッションでは適用しない。記録を保存できず、取り消せなくなるため。
+    /// メタデータの読み込み中も、連写グループが決まらず移動対象を決められないので適用しない）
+    var canApply: Bool { hasEntries && !isBusy && !isSessionReadOnly && !isLoadingMetadata }
     /// 適用が使えない理由（ヘルプ表示用）。使えるなら nil
     var applyDisabledReason: String? {
-        isSessionReadOnly ? "このフォルダは読み取り専用で開いているため、適用できません（記録を保存できず、取り消せなくなります）" : nil
+        if isSessionReadOnly {
+            return "このフォルダは読み取り専用で開いているため、適用できません（記録を保存できず、取り消せなくなります）"
+        }
+        if isLoadingMetadata { return "写真の情報を読み込み中のため、まだ適用できません（連写グループが決まっていません）" }
+        return nil
     }
     var folderName: String? { folderURL?.lastPathComponent }
 
@@ -133,6 +146,7 @@ final class BrowserModel {
         } else if saveFailed {
             text += " ・ 保存できていません"
         }
+        if isLoadingMetadata { text += " ・ 読み込み中 \(metadataLoadedCount)/\(entries.count)" }
         return text
     }
 
@@ -208,6 +222,10 @@ final class BrowserModel {
         let carryUnsaved = carrying != nil && hasPendingSave
         pipeline.removeAll()
         openTask?.cancel()
+        metadataTask?.cancel()
+        currentMetadataTask?.cancel()
+        isLoadingMetadata = false
+        metadataLoadedCount = 0
         previewTask?.cancel()
         bodyTask?.cancel()
         saveTask?.cancel()
@@ -241,6 +259,59 @@ final class BrowserModel {
             let outcome = await SessionIO.load(folder: folder, store: store)
             guard !Task.isCancelled, let outcome, let self, self.folderURL == folder else { return }
             self.finishOpening(outcome, folder: folder, selecting: id, carrying: carrying, carryUnsaved: carryUnsaved)
+            if outcome.scanError == nil, !outcome.items.isEmpty { self.startLoadingMetadata(outcome.items, folder: folder) }
+        }
+    }
+
+    /// 一覧を出した後で全コマのメタデータを読み、読み終えたら連写グループを組み直す。
+    /// 外付け HDD の数千枚では 1 分ほどかかるので、その間も選別できるよう一覧を先に出している。
+    private func startLoadingMetadata(_ items: [PhotoItem], folder: URL) {
+        isLoadingMetadata = true
+        metadataLoadedCount = 0
+        let progress: @Sendable (Int) -> Void = { [weak self] done in
+            Task { @MainActor in
+                guard let self, self.isLoadingMetadata, self.folderURL == folder else { return }
+                self.metadataLoadedCount = max(self.metadataLoadedCount, done)
+            }
+        }
+        metadataTask = Task { [weak self] in
+            let loaded = await SessionIO.loadMetadata(items: items, progress: progress)
+            guard !Task.isCancelled, let loaded, let self, self.folderURL == folder else { return }
+            self.finishLoadingMetadata(loaded)
+        }
+    }
+
+    /// 読み終えたメタデータで連写グループを組み直す。今のコマは ID で選び直し、ズームは保つ。
+    private func finishLoadingMetadata(_ items: [PhotoItem]) {
+        currentMetadataTask?.cancel()
+        let currentID = currentItem?.id
+        installGroups(BurstGrouper.group(items))
+        if let currentID, let i = indexByID[currentID] { currentIndex = i }
+        isLoadingMetadata = false
+        metadataLoadedCount = items.count
+        guard let e = currentEntry else { return }
+        currentFocus = focus(of: e.item)
+        reclamp()
+        prefetch()
+    }
+
+    /// メタデータの読み込み中に、表示中のコマのメタデータだけ先に読んで差し替える（フォーカス枠と画像の大きさのため）
+    private func loadCurrentMetadataIfNeeded() {
+        currentMetadataTask?.cancel()
+        guard isLoadingMetadata, let item = currentItem, item.metadata == nil else { return }
+        let id = item.id
+        currentMetadataTask = Task { [weak self] in
+            let metadata = await SessionIO.readMetadata(item)
+            guard !Task.isCancelled, let metadata, let self, self.isLoadingMetadata,
+                  let i = self.indexByID[id], self.entries[i].item.metadata == nil else { return }
+            let old = self.entries[i]
+            var patched = old.item
+            patched.metadata = metadata
+            self.entries[i] = BrowserEntry(item: patched, groupIndex: old.groupIndex, positionInGroup: old.positionInGroup,
+                                           groupCount: old.groupCount, isBurst: old.isBurst)
+            guard self.currentItem?.id == id else { return }
+            self.currentFocus = self.focus(of: patched)
+            self.reclamp()
         }
     }
 
@@ -265,7 +336,8 @@ final class BrowserModel {
                                carrying: SessionData?, carryUnsaved: Bool) {
         session = carrying ?? outcome.session
         isSessionReadOnly = outcome.readOnly
-        installGroups(outcome.groups)
+        // メタデータはまだ無いので、すべて単写としてファイル名順に並ぶ（読み終えてから組み直す）
+        installGroups(BurstGrouper.group(outcome.items))
         // 今のフォルダに無いコマの判定は捨てず保存データには残す（book には存在するものだけ入れる）
         let known = session.decisions.filter { indexByID[$0.key] != nil }
         book = DecisionBook(decisions: known)
@@ -349,6 +421,7 @@ final class BrowserModel {
         applyZoom(z, refreshImages: false)
         refreshDisplay()
         prefetch()
+        loadCurrentMetadataIfNeeded()
     }
 
     private func focus(of item: PhotoItem) -> FocusGeometry {
@@ -357,12 +430,11 @@ final class BrowserModel {
 
     // MARK: 判定
 
-    /// 採用 / 不採用を付けて次のコマへ進む
-    func decide(_ decision: Decision) {
+    /// 今のコマの判定を切り替える（進まない）。同じ判定なら未判定に戻す。
+    func toggleDecision(_ decision: Decision) {
         guard isInteractive, let item = currentItem else { return }
-        book.set(decision, for: item.id)
+        book.set(currentDecision == decision ? .undecided : decision, for: item.id)
         changed()
-        next()
     }
 
     /// 判定の解除（進まない）
@@ -582,6 +654,7 @@ final class BrowserModel {
         currentFocus = focus(of: e.item)
         refreshDisplay()
         prefetch()
+        loadCurrentMetadataIfNeeded()
     }
 
     private func refreshDisplay() {

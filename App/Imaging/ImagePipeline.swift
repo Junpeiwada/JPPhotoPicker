@@ -258,6 +258,9 @@ final class ImagePipeline: @unchecked Sendable {
     private static func cost(of image: CGImage) -> Int { image.width * image.height * 4 }
 
     fileprivate static func decode(_ kind: ImageKind, item: PhotoItem) -> CGImage? {
+        // フォルダを開いた直後はメタデータが未読み取り。埋め込み画像の位置と向きを知るため、その場で読む
+        var item = item
+        if item.metadata == nil { item.metadata = PhotoMetadataLoader.defaultReader(item) }
         switch ImageSource(item: item) {
         case .jpeg(let url):
             switch kind {
@@ -276,25 +279,29 @@ final class ImagePipeline: @unchecked Sendable {
 
     // MARK: ARW
 
-    /// ARW のサムネイル。ImageIO が埋め込みを使う（IfAbsent）。取れなければ埋め込み JPEG を縮小する。
+    /// ARW のサムネイル。埋め込み JPEG（1920×1080、100KB 弱）を縮小デコードする。
+    /// ImageIO に ARW を渡すと 1 枚 300ms ほどかかる（α1 II で実測）ので、埋め込みが取れないときだけ使う。
     private static func decodeARWThumbnail(url: URL, metadata: PhotoMetadata?) -> CGImage? {
-        if let source = CGImageSourceCreateWithURL(url as CFURL, nil) {
+        if let data = embeddedARWJPEGData(url: url, metadata: metadata),
+           let source = CGImageSourceCreateWithData(data as CFData, nil) {
             let opts: [CFString: Any] = [
-                kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceShouldCacheImmediately: true,
                 kCGImageSourceThumbnailMaxPixelSize: 320,
             ]
-            if let image = CGImageSourceCreateThumbnailAtIndex(source, 0, opts as CFDictionary),
-               max(image.width, image.height) >= 160 {
-                return image
+            // 向きはプレビューと同じく ARW の Orientation で当てる（ImageIO には当てさせない）
+            if let image = CGImageSourceCreateThumbnailAtIndex(source, 0, opts as CFDictionary) {
+                return oriented(image, orientation: metadata?.orientation ?? 1)
             }
         }
-        // 埋め込みのサムネイルが小さすぎる・取れないときは、埋め込み JPEG から縮小する
-        if let embedded = embeddedARWJPEG(url: url, metadata: metadata) {
-            return oriented(downscaled(embedded, maxPixel: 320), orientation: metadata?.orientation ?? 1)
-        }
-        return nil
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let opts: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: 320,
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, opts as CFDictionary)
     }
 
     /// ARW の大プレビュー。埋め込み JPEG があればそれ、無ければ ImageIO（長辺 1920、埋め込み優先）。
@@ -329,18 +336,15 @@ final class ImagePipeline: @unchecked Sendable {
 
     /// ARW に埋め込まれた JPEG（先頭が FF D8 のものだけ）。向きは未適用
     private static func embeddedARWJPEG(url: URL, metadata: PhotoMetadata?) -> CGImage? {
+        embeddedARWJPEGData(url: url, metadata: metadata).flatMap(decodeData)
+    }
+
+    /// ARW に埋め込まれた JPEG のバイト列（先頭が FF D8 のものだけ）
+    private static func embeddedARWJPEGData(url: URL, metadata: PhotoMetadata?) -> Data? {
         guard let range = metadata?.mpfPreview,
               let data = try? range.readData(from: url),
               data.count > 2, data[data.startIndex] == 0xFF, data[data.startIndex + 1] == 0xD8 else { return nil }
-        return decodeData(data)
-    }
-
-    private static func downscaled(_ image: CGImage, maxPixel: Int) -> CGImage {
-        guard max(image.width, image.height) > maxPixel else { return image }
-        let scale = Double(maxPixel) / Double(max(image.width, image.height))
-        let ci = CIImage(cgImage: image).transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-        let space = image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!
-        return ciContext.createCGImage(ci, from: ci.extent, format: .RGBA8, colorSpace: space) ?? image
+        return data
     }
 
     /// IFD1 のサムネイル（160×120）。無ければ ImageIO に任せる。

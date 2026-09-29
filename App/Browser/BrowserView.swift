@@ -12,7 +12,9 @@ struct BrowserView: View {
         @Bindable var model = model
 
         content
-            .frame(minWidth: 720, minHeight: 480)
+            // 余白も含めたウインドウ全体でドロップを受ける
+            .frame(minWidth: 720, maxWidth: .infinity, minHeight: 480, maxHeight: .infinity)
+            .contentShape(Rectangle())
             .applyFlow(model)
             // フォルダ選択（標準のファイル選択シート）
             .fileImporter(isPresented: $model.isImporterPresented, allowedContentTypes: [.folder]) { result in

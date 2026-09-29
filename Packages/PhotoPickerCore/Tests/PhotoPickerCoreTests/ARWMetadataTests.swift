@@ -11,6 +11,8 @@ private struct SyntheticARW {
     var releaseMode = 2
     var sequence = 6
     var withMakerNote = true
+    /// MakerNote の先頭に "SONY DSC " ヘッダーを置く（JPG 形式）。false なら先頭がすぐ IFD（実機の ARW 形式）
+    var makerNoteHeader = true
     var withPreview = true
     /// IFD1（480）と SubIFD（450）にもプレビュー候補を置く（L4: 最大の length を選ぶ）
     var withExtraPreviews = false
@@ -58,13 +60,14 @@ private struct SyntheticARW {
         put(220, Array("+09:00".utf8) + [0])
 
         if withMakerNote {
-            put(300, Array("SONY DSC ".utf8) + [0, 0, 0])
-            // IFD @312、エントリ 4 件 → 2 + 48 + 4 = 54 バイト。値領域は 400 以降
-            p16(312, 4)
-            entry(314, tag: 0x2027, type: 7, count: 8, value: 400)
-            entry(326, tag: 0x2037, type: 7, count: 6, value: 410)
-            entry(338, tag: 0xB049, type: 1, count: 1, value: releaseMode)
-            entry(350, tag: 0xB04A, type: 1, count: 1, value: sequence)
+            // IFD @312（ヘッダーなしなら @300）、エントリ 4 件 → 2 + 48 + 4 = 54 バイト。値領域は 400 以降
+            let ifd = makerNoteHeader ? 312 : 300
+            if makerNoteHeader { put(300, Array("SONY DSC ".utf8) + [0, 0, 0]) }
+            p16(ifd, 4)
+            entry(ifd + 2, tag: 0x2027, type: 7, count: 8, value: 400)
+            entry(ifd + 14, tag: 0x2037, type: 7, count: 6, value: 410)
+            entry(ifd + 26, tag: 0xB049, type: 1, count: 1, value: releaseMode)
+            entry(ifd + 38, tag: 0xB04A, type: 1, count: 1, value: sequence)
             for (k, v) in [8640, 4864, 4563, 2918].enumerated() { p16(400 + k * 2, v) }
             for (k, v) in [189, 193, 257].enumerated() { p16(410 + k * 2, v) }
         }
@@ -111,6 +114,34 @@ struct ARWMetadataTests {
         let t = try #require(m.captureDate).timeIntervalSince1970
         // 12:34:56.351 +09:00 = 03:34:56.351 UTC
         #expect(abs(t - (utc(2026, 9, 29, 3, 34, 56) + 0.351)) < 0.0005)
+    }
+
+    @Test("ヘッダーなしの MakerNote（実機の ARW 形式）も読める")
+    func headerlessMakerNote() throws {
+        var s = SyntheticARW()
+        s.makerNoteHeader = false
+        let m = try #require(ARWMetadataReader.parse(prefix: Data(s.build())))
+        #expect(m.releaseMode == 2)
+        #expect(m.sequenceNumber == 6)
+        #expect(m.focusLocation == FocusLocation(width: 8640, height: 4864, x: 4563, y: 2918))
+        #expect(m.focusFrameSize == FocusFrameSize(width: 189, height: 193, flag: 257))
+    }
+
+    @Test("MakerNote・タグが無くても、先頭を 1 回読むだけで終える（読み増さない）")
+    func noExtraReadsWithoutMakerNote() throws {
+        for withMakerNote in [false, true] {
+            var s = SyntheticARW()
+            s.withMakerNote = withMakerNote
+            let bytes = s.build(padTo: 1_000_000)
+            var reads: [(Int, Int)] = []
+            let m = try ARWMetadataReader.read(fileSize: bytes.count) { offset, count in
+                reads.append((offset, count))
+                return Data(bytes[offset..<min(offset + count, bytes.count)])
+            }
+            #expect(reads.count == 1)
+            #expect(reads.first?.1 == ARWMetadataReader.initialReadSize)
+            #expect((m.releaseMode != nil) == withMakerNote)
+        }
     }
 
     @Test("MakerNote もプレビューも無い ARW は、読めた分だけ返す")

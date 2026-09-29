@@ -28,8 +28,8 @@ enum DebugScript {
                 case "z": model.toggleZoom()
                 case "esc": model.resetZoom()
                 case "f": model.moveToFocus()
-                case "p": model.decide(.picked)
-                case "x": model.decide(.rejected)
+                case "p": model.toggleDecision(.picked)
+                case "x": model.toggleDecision(.rejected)
                 case "undo": model.undo()
                 case "apply": model.requestApply()
                 case "confirmApply": if let plan = model.pendingApplyPlan { model.confirmApply(plan) }

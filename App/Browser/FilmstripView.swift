@@ -1,12 +1,18 @@
 import SwiftUI
 import PhotoPickerCore
 
-/// 下部のフィルムストリップ。横スクロール、連写グループはうっすらした背景と角丸でまとめる。
-/// 1 コマ単位の LazyHStack に平らに並べ、グループの背景は各セルが「先頭 / 中 / 末尾」に応じて描く。
+/// 下部のフィルムストリップ。横スクロール、グループ（単写は 1 枚で 1 グループ）は間隔で区切り、
+/// 今のグループだけ下線を引く。1 コマ単位の LazyHStack に平らに並べ、下線は各セルが「先頭 / 中 / 末尾」に応じて描く。
 struct FilmstripView: View {
     @Environment(BrowserModel.self) private var model
 
     static let cellHeight: CGFloat = 76
+    /// グループ内のコマの間隔
+    static let innerGap: CGFloat = 4
+    /// グループどうしの間隔
+    static let groupGap: CGFloat = 14
+    /// サムネイルの下に取る、下線用の余白（下線を含む）
+    static let underlineSpace: CGFloat = 7
 
     /// コマの幅。本体の縦横比（表示向き）に合わせる。メタデータが無ければ 3:2
     static func cellWidth(for item: PhotoItem) -> CGFloat {
@@ -35,23 +41,27 @@ struct FilmstripView: View {
             // 現在のコマを追従させる（body で currentIndex を読まないよう別ビューに分ける）
             .background { ScrollFollower(proxy: proxy) }
         }
-        .frame(height: Self.cellHeight + 12 + 8)
+        .frame(height: Self.cellHeight + Self.underlineSpace + 12 + 8)
         .background(.black.opacity(0.25))
     }
 }
 
-/// 現在のコマが変わったらフィルムストリップをスクロールする。アニメーションなし。
+/// 現在のコマが変わったらフィルムストリップをスクロールする。コマ送りでは短くアニメーションする。
 private struct ScrollFollower: View {
     @Environment(BrowserModel.self) private var model
     let proxy: ScrollViewProxy
 
     var body: some View {
         Color.clear
-            .onChange(of: model.currentItem?.id, initial: true) { _, id in
+            .onChange(of: model.currentItem?.id, initial: true) { old, id in
                 guard let id else { return }
-                proxy.scrollTo(id, anchor: .center)
-                // 初回など、レイアウトが済む前の呼び出しに備えて 1 周期後にもう一度
-                DispatchQueue.main.async { proxy.scrollTo(id, anchor: .center) }
+                if old == nil || old == id {
+                    // 初回・フォルダを開いた直後はアニメーションなし。
+                    // レイアウトが済む前の呼び出しに備えて 1 周期後にもう一度
+                    proxy.scrollTo(id, anchor: .center)
+                    DispatchQueue.main.async { proxy.scrollTo(id, anchor: .center) }
+                } else {
+                    withAnimation(.easeOut(duration: 0.08)) { proxy.scrollTo(id, anchor: .center) }                }
             }
     }
 }
@@ -66,6 +76,7 @@ private struct FilmstripCellHost: View {
             entry: entry,
             decision: model.decision(for: entry.item),
             isCurrent: model.currentItem?.id == entry.id,
+            isInCurrentGroup: model.currentEntry?.groupIndex == entry.groupIndex,
             pipeline: model.pipeline,
             onSelect: { [model] id in model.select(id: id) })
     }
@@ -75,6 +86,7 @@ private struct FilmstripCell: View {
     let entry: BrowserEntry
     let decision: Decision
     let isCurrent: Bool
+    let isInCurrentGroup: Bool
     let pipeline: ImagePipeline
     let onSelect: (String) -> Void
     @State private var thumbnail: CGImage?
@@ -90,22 +102,22 @@ private struct FilmstripCell: View {
             thumbnailView
         }
         .buttonStyle(.plain)
-        // 連写グループの背景（先頭・末尾だけ角を丸める）。グループ内の隙間もこの背景で埋まる
-        .padding(.leading, entry.isBurst && isFirst ? 4 : 0)
-        .padding(.trailing, entry.isBurst ? 4 : 0)
-        .padding(.vertical, entry.isBurst ? 4 : 0)
-        .background {
-            if entry.isBurst {
+        // グループ内の隙間（下線はこの隙間もつないで引く）
+        .padding(.trailing, isLast ? 0 : FilmstripView.innerGap)
+        .padding(.bottom, FilmstripView.underlineSpace)
+        .overlay(alignment: .bottom) {
+            if isInCurrentGroup {
                 UnevenRoundedRectangle(
-                    topLeadingRadius: isFirst ? 10 : 0, bottomLeadingRadius: isFirst ? 10 : 0,
-                    bottomTrailingRadius: isLast ? 10 : 0, topTrailingRadius: isLast ? 10 : 0,
+                    topLeadingRadius: isFirst ? 1.5 : 0, bottomLeadingRadius: isFirst ? 1.5 : 0,
+                    bottomTrailingRadius: isLast ? 1.5 : 0, topTrailingRadius: isLast ? 1.5 : 0,
                     style: .continuous)
-                    .fill(.white.opacity(0.08))
+                    .fill(Color.orange)
+                    .frame(height: 3)
             }
         }
-        // グループ間・単写どうしの間隔
-        .padding(.leading, entry.isBurst ? (isFirst ? 3 : 0) : 3)
-        .padding(.trailing, entry.isBurst ? (isLast ? 3 : 0) : 3)
+        // グループ間の間隔（単写も 1 枚で 1 グループ）
+        .padding(.leading, isFirst ? FilmstripView.groupGap / 2 : 0)
+        .padding(.trailing, isLast ? FilmstripView.groupGap / 2 : 0)
         .task(id: item.id) {
             if let c = pipeline.cached(.thumbnail, for: item) {
                 thumbnail = c

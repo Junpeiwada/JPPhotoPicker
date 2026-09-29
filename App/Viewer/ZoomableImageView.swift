@@ -3,7 +3,7 @@ import AppKit
 import QuartzCore
 import PhotoPickerCore
 
-/// 画像の表示・ドラッグ・2本指スクロール・ピンチ・クリックを受ける NSView のラッパー。
+/// 画像の表示・ドラッグ・2本指スクロール・ホイール・ピンチ・クリックを受ける NSView のラッパー。
 /// 表示位置は `ViewportGeometry.imageRect`（ZoomState と一貫した計算）に従い、レイヤーを直接動かす。
 /// 判定ロジックは持たず、入力を `BrowserModel` の操作に渡すだけ。
 /// ピンチの段階。`changed` の倍率は、ジェスチャー開始からの累積倍率。
@@ -128,9 +128,49 @@ final class ZoomCanvasView: NSView {
     }
 
     override func scrollWheel(with event: NSEvent) {
+        // トラックパッド・Magic Mouse（滑らかな入力）はパン、マウスのホイールはズーム
+        guard event.hasPreciseScrollingDeltas else {
+            wheelZoom(with: event)
+            return
+        }
         guard isZoomed else { return }
-        let k: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 8
-        onPan?(CGSize(width: event.scrollingDeltaX * k, height: event.scrollingDeltaY * k))
+        onPan?(CGSize(width: event.scrollingDeltaX, height: event.scrollingDeltaY))
+    }
+
+    // MARK: ホイールズーム
+
+    /// ズームを始めるまでの遊び（行数）
+    private static let wheelDeadZone: CGFloat = 3
+    /// 1 行あたりの倍率
+    private static let wheelStep = 1.12
+    /// この秒数ホイールが止まったら遊びを戻す
+    private static let wheelIdleReset: TimeInterval = 0.4
+
+    private var wheelAccum: CGFloat = 0
+    private var wheelEngaged = false
+    private var lastWheelTime: TimeInterval = 0
+
+    /// 遊びを越えるまでは溜めるだけ。越えたら 1 回ごとに今の倍率を起点にズームする（上限で回し過ぎても戻しが効く）。
+    private func wheelZoom(with event: NSEvent) {
+        // ナチュラルスクロールの設定に関係なく、奥へ回すと拡大
+        let dy = event.isDirectionInvertedFromDevice ? -event.scrollingDeltaY : event.scrollingDeltaY
+        guard dy != 0 else { return }
+        if event.timestamp - lastWheelTime > Self.wheelIdleReset {
+            wheelAccum = 0
+            wheelEngaged = false
+        }
+        lastWheelTime = event.timestamp
+        if !wheelEngaged {
+            // 逆向きに回したら溜めた分は捨てる
+            if wheelAccum != 0, (wheelAccum > 0) != (dy > 0) { wheelAccum = 0 }
+            wheelAccum += dy
+            guard abs(wheelAccum) >= Self.wheelDeadZone else { return }
+            wheelEngaged = true
+        }
+        let p = topLeftPoint(convert(event.locationInWindow, from: nil))
+        onPinch?(.began, 1, p)
+        onPinch?(.changed, pow(Self.wheelStep, Double(dy)), p)
+        onPinch?(.ended, 1, p)
     }
 
     override func magnify(with event: NSEvent) {

@@ -274,7 +274,7 @@ struct SyntheticJPEGTests {
     @Test("ARW: 読み込み中にファイルが縮んでも無限ループしない")
     func shrinkingARWDoesNotLoop() throws {
         var calls = 0
-        let full = SyntheticARWForEOF.bytesWithoutMakerNote   // MakerNote が無いので「読み足りない」扱いになる
+        let full = SyntheticARWForEOF.bytesWithoutMakerNote   // 実サイズ 512 バイト。要求より短く返るので EOF とみなされる
         let m = try ARWMetadataReader.read(fileSize: 50_000_000) { offset, count in
             calls += 1
             #expect(calls < 50)
