@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import Synchronization
 import PhotoPickerCore
 
@@ -102,6 +103,16 @@ enum SessionIO {
     @concurrent
     static func readMetadata(_ item: PhotoItem) async -> PhotoMetadata? {
         PhotoMetadataLoader.defaultReader(item)
+    }
+
+    /// 情報パネル用に、ImageIO で全プロパティを読む（ファイルの先頭だけを読み、画像はデコードしない）
+    @concurrent
+    static func readInfo(_ item: PhotoItem) async -> PhotoInfo? {
+        let options = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithURL(item.primaryURL as CFURL, options),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, options) as? [String: Any]
+        else { return nil }
+        return PhotoInfo(properties: properties)
     }
 
     /// デバウンス後の保存。失敗したらそのエラーを返す。

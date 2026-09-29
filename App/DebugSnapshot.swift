@@ -28,6 +28,7 @@ enum DebugScript {
                 case "z": model.toggleZoom()
                 case "esc": model.resetZoom()
                 case "f": model.moveToFocus()
+                case "i": model.toggleInfo()
                 case "p": model.toggleDecision(.picked)
                 case "x": model.toggleDecision(.rejected)
                 case "undo": model.undo()
@@ -55,7 +56,7 @@ enum DebugScript {
             + "plan=\(model.pendingApplyPlan?.candidates.count ?? -1) undoRecord=\(model.pendingUndoRecord != nil) "
             + "canUndoApply=\(model.canUndoApply) failure=\(model.failureReport?.summary ?? "-") "
             + "canApply=\(model.canApply) topInset=\(model.topInset) view=\(Int(model.viewSize.width))x\(Int(model.viewSize.height)) "
-            + "zoomFit=\(model.zoom.isFit) readOnly=\(model.isSessionReadOnly) saveFailed=\(model.saveFailed)\n"
+            + "zoomFit=\(model.zoom.isFit) info=\(model.showInfo) infoRows=\(model.currentItem.flatMap { model.infoCache[$0.id] }.map { $0.sections.reduce(0) { $0 + $1.rows.count } } ?? -1) readOnly=\(model.isSessionReadOnly) saveFailed=\(model.saveFailed)\n"
         if let h = FileHandle(forWritingAtPath: path) {
             h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close()
         } else {

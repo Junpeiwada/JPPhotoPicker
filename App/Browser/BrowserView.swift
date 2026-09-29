@@ -51,6 +51,14 @@ struct BrowserView: View {
                     .help(model.applyDisabledReason
                           ?? "不採用のコマと、連写で採用しなかったコマを _rejected に移します")
                 }
+                // 右端: 情報パネルの切り替え
+                ToolbarItem(placement: .primaryAction) {
+                    Toggle(isOn: $model.showInfo) {
+                        Label("情報", systemImage: "info.circle")
+                    }
+                    .disabled(!model.hasEntries)
+                    .help("撮影情報（EXIF）を表示します（I）")
+                }
             }
             .focusedSceneValue(\.browserModel, model)
             // 適用・取り消しの実行中はウインドウを閉じさせない

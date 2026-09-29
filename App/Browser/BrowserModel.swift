@@ -56,6 +56,13 @@ final class BrowserModel {
     var showFocusFrame: Bool {
         didSet { UserDefaults.standard.set(showFocusFrame, forKey: PreferenceKey.showFocusFrame) }
     }
+    /// 情報パネル（EXIF）を表示するか。I キー・ツールバーのボタンで切り替える
+    var showInfo: Bool {
+        didSet { UserDefaults.standard.set(showInfo, forKey: PreferenceKey.showInfo) }
+    }
+    /// 情報パネルの内容（コマ ID → 情報）。表示したコマの分だけ持つ
+    private(set) var infoCache: [String: PhotoInfo] = [:]
+    private static let infoCacheLimit = 64
 
     let pipeline = ImagePipeline()
 
@@ -96,6 +103,7 @@ final class BrowserModel {
     init() {
         PreferenceKey.register()
         showFocusFrame = UserDefaults.standard.bool(forKey: PreferenceKey.showFocusFrame)
+        showInfo = UserDefaults.standard.bool(forKey: PreferenceKey.showInfo)
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -221,6 +229,7 @@ final class BrowserModel {
         // 保存できていない内容を引き継ぐときは、読み直した後で保存し直す
         let carryUnsaved = carrying != nil && hasPendingSave
         pipeline.removeAll()
+        infoCache = [:]
         openTask?.cancel()
         metadataTask?.cancel()
         currentMetadataTask?.cancel()
@@ -422,6 +431,18 @@ final class BrowserModel {
         refreshDisplay()
         prefetch()
         loadCurrentMetadataIfNeeded()
+    }
+
+    // MARK: 情報パネル
+
+    /// 情報パネルの表示を切り替える
+    func toggleInfo() { showInfo.toggle() }
+
+    /// 情報パネルに出すコマの情報を読む（情報パネルの .task から呼ぶ。読み済みなら何もしない）
+    func loadInfo(for item: PhotoItem) async {
+        guard infoCache[item.id] == nil, let info = await SessionIO.readInfo(item), !Task.isCancelled else { return }
+        if infoCache.count >= Self.infoCacheLimit { infoCache.removeAll(keepingCapacity: true) }
+        infoCache[item.id] = info
     }
 
     private func focus(of item: PhotoItem) -> FocusGeometry {

@@ -6,6 +6,8 @@ enum PreferenceKey {
     static let prefetchCount = "prefetchCount"
     /// フォーカス枠を表示するか
     static let showFocusFrame = "showFocusFrame"
+    /// 情報パネル（EXIF）を表示するか
+    static let showInfo = "showInfo"
 
     static let defaultPrefetchCount = 4
 

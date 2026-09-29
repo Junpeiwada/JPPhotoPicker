@@ -92,6 +92,11 @@ struct BrowserCommands: Commands {
                 set: { model?.showFocusFrame = $0 }))
                 .keyboardShortcut("f", modifiers: .shift)
                 .disabled(model == nil || model?.isModalPresented == true)
+            Toggle("情報を表示", isOn: Binding(
+                get: { model?.showInfo ?? false },
+                set: { model?.showInfo = $0 }))
+                .keyboardShortcut("i", modifiers: [])
+                .disabled(model == nil || model?.isModalPresented == true)
         }
     }
 }

@@ -78,22 +78,30 @@ struct PreviewView: View {
     }
 
     private func overlays(topInset: CGFloat) -> some View {
-        VStack {
-            HStack {
+        HStack(alignment: .bottom) {
+            VStack(alignment: .leading) {
                 if model.currentItem?.kind == .arwOnly {
                     badge { Text("ARW").font(.caption.weight(.semibold)) }
                         .accessibilityLabel("ARW だけのファイル")
                         .help("ペアの JPG がない ARW ファイルです")
                 }
                 Spacer()
+                GlassEffectContainer(spacing: 8) { statusBadges }
             }
             Spacer()
-            HStack(alignment: .bottom) {
-                GlassEffectContainer(spacing: 8) { statusBadges }
-                Spacer()
+            // 右カラム: 情報パネル（I で切り替え）の下に判定・拡大のボタンを置く
+            VStack(alignment: .trailing, spacing: 12) {
+                if model.showInfo, let item = model.currentItem {
+                    InfoPanel(item: item)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                } else {
+                    Spacer()
+                }
                 GlassEffectContainer(spacing: 8) { zoomControls }
             }
         }
+        .animation(.snappy(duration: 0.2), value: model.showInfo)
         .padding(14)
         .padding(.top, topInset)
     }

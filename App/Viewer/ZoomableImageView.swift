@@ -3,7 +3,7 @@ import AppKit
 import QuartzCore
 import PhotoPickerCore
 
-/// 画像の表示・ドラッグ・2本指スクロール・ホイール・ピンチ・クリックを受ける NSView のラッパー。
+/// 画像の表示・ドラッグ・2本指スクロール・ホイール・⌘+スクロール・ピンチ・クリックを受ける NSView のラッパー。
 /// 表示位置は `ViewportGeometry.imageRect`（ZoomState と一貫した計算）に従い、レイヤーを直接動かす。
 /// 判定ロジックは持たず、入力を `BrowserModel` の操作に渡すだけ。
 /// ピンチの段階。`changed` の倍率は、ジェスチャー開始からの累積倍率。
@@ -128,13 +128,34 @@ final class ZoomCanvasView: NSView {
     }
 
     override func scrollWheel(with event: NSEvent) {
-        // トラックパッド・Magic Mouse（滑らかな入力）はパン、マウスのホイールはズーム
+        // トラックパッド・Magic Mouse（滑らかな入力）はパン、マウスのホイールはズーム。
+        // ⌘ を押しながらなら、滑らかな入力でもズームする（Magic Mouse はピンチできないため）
         guard event.hasPreciseScrollingDeltas else {
             wheelZoom(with: event)
             return
         }
+        if event.modifierFlags.contains(.command) {
+            smoothZoom(with: event)
+            return
+        }
         guard isZoomed else { return }
         onPan?(CGSize(width: event.scrollingDeltaX, height: event.scrollingDeltaY))
+    }
+
+    /// 滑らかな入力 1 ポイントあたりの倍率の変化（対数）
+    private static let smoothZoomRate = 0.006
+
+    /// ⌘ + 滑らかなスクロールのズーム。遊びは設けず、1 イベントごとに今の倍率を起点に変える。
+    /// 指を離した後の慣性ではズームしない。
+    private func smoothZoom(with event: NSEvent) {
+        guard event.momentumPhase.isEmpty else { return }
+        // ナチュラルスクロールの設定に関係なく、奥へ動かすと拡大
+        let dy = event.isDirectionInvertedFromDevice ? -event.scrollingDeltaY : event.scrollingDeltaY
+        guard dy != 0 else { return }
+        let p = topLeftPoint(convert(event.locationInWindow, from: nil))
+        onPinch?(.began, 1, p)
+        onPinch?(.changed, exp(Double(dy) * Self.smoothZoomRate), p)
+        onPinch?(.ended, 1, p)
     }
 
     // MARK: ホイールズーム

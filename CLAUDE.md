@@ -32,7 +32,7 @@ GUI を目視せずに動作を確かめる仕組み。
   -debugScript "wait,z,next,p,log:/tmp/state.txt,snap:/tmp/shot.png,quit"
 ```
 
-ステップ: `wait` `next` `prev` `nextGroup` `z` `esc` `f` `p` `x` `undo` `apply` `confirmApply` `undoApply` `confirmUndoApply` `ok` `quit` `open:<パス>` `goto:<id>` `log:<ファイル>`（モデル状態を1行追記） `snap:<png>`（ウインドウ画像を保存）。
+ステップ: `wait` `next` `prev` `nextGroup` `z` `esc` `f` `i` `p` `x` `undo` `apply` `confirmApply` `undoApply` `confirmUndoApply` `ok` `quit` `open:<パス>` `goto:<id>` `log:<ファイル>`（モデル状態を1行追記） `snap:<png>`（ウインドウ画像を保存）。
 
 ## 構成
 
