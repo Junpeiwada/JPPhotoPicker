@@ -1,0 +1,11 @@
+# ビルド生成物
+.build/
+DerivedData/
+build/
+*.xcodeproj
+*.xcworkspace/xcuserdata/
+xcuserdata/
+.swiftpm/
+
+# macOS
+.DS_Store

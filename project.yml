@@ -1,0 +1,37 @@
+name: PhotoPicker
+options:
+  developmentLanguage: ja
+  bundleIdPrefix: com.junpeiwada
+  deploymentTarget:
+    macOS: "26.0"
+packages:
+  PhotoPickerCore:
+    path: Packages/PhotoPickerCore
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
+targets:
+  PhotoPicker:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+    dependencies:
+      - package: PhotoPickerCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.junpeiwada.PhotoPicker
+        PRODUCT_NAME: PhotoPicker
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: PhotoPicker
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.photography
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"
+        ENABLE_APP_SANDBOX: NO
+        ENABLE_HARDENED_RUNTIME: NO
+        EXTRACT_APP_INTENTS_METADATA: NO
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: "0.1.0"
