@@ -27,6 +27,9 @@ final class BrowserModel {
     private(set) var metadataLoadedCount = 0
     private(set) var errorMessage: String?
 
+    /// 最近開いたフォルダ（起動画面に出す）
+    private(set) var recentFolders = RecentFolders()
+
     // MARK: コマ
     private(set) var groups: [PhotoGroup] = []
     private(set) var entries: [BrowserEntry] = []
@@ -49,9 +52,17 @@ final class BrowserModel {
     private(set) var topInset: CGFloat = 0
     private(set) var currentFocus: FocusGeometry = .centered
     /// 大プレビュー（未読み込みの間はサムネイル）
-    private(set) var displayPreview: CGImage?
+    private(set) var displayPreview: PipelineImage?
     /// 拡大時の本体。デコード完了まで nil
-    private(set) var displayBody: CGImage?
+    private(set) var displayBody: PipelineImage?
+    /// 全体表示用（本体を画面の画素数に縮小したもの）。ウインドウの大きさを変えた直後は、作り直すまで古い大きさのものが入る
+    private(set) var displayScreen: PipelineImage?
+    /// `displayScreen` のコマと長辺（画素）
+    private var displayScreenItemID: String?
+    private var displayScreenMaxPixel = 0
+    /// 最高画質の画像を作れなかった（読み込み中マークを出し続けないため）
+    private var screenFailed = false
+    private var bodyFailed = false
 
     var showFocusFrame: Bool {
         didSet { UserDefaults.standard.set(showFocusFrame, forKey: PreferenceKey.showFocusFrame) }
@@ -96,6 +107,9 @@ final class BrowserModel {
     private var pinchStartScale: Double?
     private var previewTask: Task<Void, Never>?
     private var bodyTask: Task<Void, Never>?
+    private var screenTask: Task<Void, Never>?
+    /// ウインドウの大きさを変えている間は、全体表示用の画像を作り直すのを少し待つ
+    private var screenResizeTask: Task<Void, Never>?
     private var openTask: Task<Void, Never>?
     private var metadataTask: Task<Void, Never>?
     private var currentMetadataTask: Task<Void, Never>?
@@ -104,6 +118,10 @@ final class BrowserModel {
         PreferenceKey.register()
         showFocusFrame = UserDefaults.standard.bool(forKey: PreferenceKey.showFocusFrame)
         showInfo = UserDefaults.standard.bool(forKey: PreferenceKey.showInfo)
+        if let data = UserDefaults.standard.data(forKey: PreferenceKey.recentFolders),
+           let saved = try? JSONDecoder().decode(RecentFolders.self, from: data) {
+            recentFolders = saved
+        }
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -185,8 +203,42 @@ final class BrowserModel {
         let size = pixelSize(of: item)
         if size != .zero { return size }
         if let body = displayBody { return CGSize(width: body.width, height: body.height) }
+        if let s = displayScreen { return CGSize(width: s.width, height: s.height) }
         if let p = displayPreview { return CGSize(width: p.width, height: p.height) }
         return .zero
+    }
+
+    /// 全体表示用の画像の長辺（画素）。ビューの大きさが決まるまでは 0
+    private var screenMaxPixel: Int {
+        ScreenResolution.maxPixel(viewSize: viewSize, topInset: topInset, backingScale: backingScale)
+    }
+
+    private var screenKind: ImageKind? {
+        let m = screenMaxPixel
+        return m > 0 ? .screen(maxPixel: m) : nil
+    }
+
+    /// 表示する画像とその質（選び方は `DisplaySelection`）
+    private var displaySelection: DisplaySelection {
+        let screenIsCurrent = displayScreenItemID == currentItem?.id && displayScreenMaxPixel == screenMaxPixel
+        return DisplaySelection.choose(isFit: zoom.isFit, hasBody: displayBody != nil, hasScreen: displayScreen != nil,
+                                       screenIsCurrent: screenIsCurrent, hasPreview: displayPreview != nil,
+                                       screenFailed: screenFailed, bodyFailed: bodyFailed)
+    }
+
+    /// 今表示する画像。最高画質（全体表示は全体表示用、拡大は本体）ができるまでは、手元で一番良いものを出す
+    var displayImage: PipelineImage? {
+        switch displaySelection.source {
+        case .body: displayBody
+        case .screen: displayScreen
+        case .preview: displayPreview
+        case .none: nil
+        }
+    }
+
+    /// 表示中の画像の質。最高画質でない間は読み込み中（作れなかったときは警告）のマークを出す
+    var displayQuality: DisplayQuality {
+        currentItem == nil ? .best : displaySelection.quality
     }
 
     private func viewport(for item: PhotoItem) -> ZoomViewport {
@@ -221,6 +273,36 @@ final class BrowserModel {
         return true
     }
 
+    /// 履歴のフォルダを開く。見つからなければ（外付けディスクが外れているなど）知らせるだけで、履歴には残す
+    func open(recent: RecentFolder) {
+        guard isInteractive else { return }
+        guard Self.folderExists(recent.url) else {
+            notice = "「\(recent.name)」が見つかりません。\n\(recent.path)"
+            return
+        }
+        open(folder: recent.url)
+    }
+
+    func removeRecent(_ recent: RecentFolder) {
+        recentFolders.remove(recent.url)
+        saveRecent()
+    }
+
+    nonisolated static func folderExists(_ url: URL) -> Bool {
+        var isDir: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
+    }
+
+    private func recordRecent(_ folder: URL) {
+        recentFolders.record(folder, at: Date())
+        saveRecent()
+    }
+
+    private func saveRecent() {
+        guard let data = try? JSONEncoder().encode(recentFolders) else { return }
+        UserDefaults.standard.set(data, forKey: PreferenceKey.recentFolders)
+    }
+
     /// フォルダを開く。`id` があれば、そのコマを選んだ状態にする（無ければ最初の未判定コマ）。
     /// `carrying` があれば、読み直した後でディスクの内容の代わりにそのセッション（判定・適用の記録）を使う。
     /// 保存に失敗したまま読み直しても、メモリ上の判定や取り消しの結果を失わないため。
@@ -237,10 +319,13 @@ final class BrowserModel {
         metadataLoadedCount = 0
         previewTask?.cancel()
         bodyTask?.cancel()
+        screenTask?.cancel()
+        screenResizeTask?.cancel()
         saveTask?.cancel()
         saveTask = nil
         hasPendingSave = false
         folderURL = folder
+        recordRecent(folder)
         errorMessage = nil
         isLoading = true
         groups = []
@@ -255,6 +340,7 @@ final class BrowserModel {
         pinchStartScale = nil
         displayPreview = nil
         displayBody = nil
+        clearScreen()
         currentFocus = .centered
         session = SessionData()
         isSessionReadOnly = false
@@ -645,10 +731,31 @@ final class BrowserModel {
     /// PreviewView から大きさ・倍率（displayScale）が変わったとき
     /// `topInset` はツールバーの高さ。全体表示はその下に収める
     func viewportChanged(size: CGSize, scale: Double, topInset: CGFloat) {
+        let oldMaxPixel = screenMaxPixel
         viewSize = size
         backingScale = scale
         self.topInset = topInset
         reclamp()
+        if screenMaxPixel != oldMaxPixel { scheduleScreenRefresh(previousMaxPixel: oldMaxPixel) }
+    }
+
+    /// 全体表示用の画像を今の大きさで作り直す。まだ何も出していなければすぐ、
+    /// 出していれば大きさ変更が落ち着くまで待つ（その間は古い画像を引き伸ばし、読み込み中マークを出す）
+    private func scheduleScreenRefresh(previousMaxPixel: Int) {
+        screenResizeTask?.cancel()
+        // ビューの大きさが初めて決まったときだけすぐ作る。リサイズ中は、まだ何も出していなくても待つ
+        // （実行中のデコードは取り消せないので、途中の大きさのデコードを積み上げない）
+        guard previousMaxPixel > 0 else {
+            refreshScreen()
+            prefetch()
+            return
+        }
+        screenResizeTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled, let self else { return }
+            self.refreshScreen()
+            self.prefetch()
+        }
     }
 
     /// 今のコマの大きさで中心をクランプし直す
@@ -707,11 +814,56 @@ final class BrowserModel {
                 }
             }
         }
+        refreshScreen()
         refreshBody()
+    }
+
+    private func clearScreen() {
+        screenTask?.cancel()
+        displayScreen = nil
+        displayScreenItemID = nil
+        displayScreenMaxPixel = 0
+        screenFailed = false
+    }
+
+    /// 全体表示用の画像を、今のコマ・今の大きさで読む。拡大中も読む（本体ができるまでの仮表示と、全体表示に戻ったときのため）
+    private func refreshScreen() {
+        screenTask?.cancel()
+        screenResizeTask?.cancel()
+        guard let item = currentItem, let kind = screenKind else {
+            clearScreen()
+            return
+        }
+        let id = item.id
+        let maxPixel = screenMaxPixel
+        if displayScreenItemID != id { clearScreen() }
+        screenFailed = false
+        if let s = pipeline.cached(kind, for: item) {
+            setScreen(s, id: id, maxPixel: maxPixel)
+            return
+        }
+        // 大きさだけ変わったときは、作り直すまで古い画像を出しておく
+        screenTask = Task { [weak self, pipeline, isFit = zoom.isFit] in
+            let image = await pipeline.load(kind, for: item, queuePriority: isFit ? .high : .normal)
+            guard !Task.isCancelled, let self, self.currentItem?.id == id, self.screenMaxPixel == maxPixel else { return }
+            if let image {
+                self.setScreen(image, id: id, maxPixel: maxPixel)
+                self.reclamp()
+            } else {
+                self.screenFailed = true
+            }
+        }
+    }
+
+    private func setScreen(_ image: PipelineImage, id: String, maxPixel: Int) {
+        displayScreen = image
+        displayScreenItemID = id
+        displayScreenMaxPixel = maxPixel
     }
 
     private func refreshBody() {
         bodyTask?.cancel()
+        bodyFailed = false
         guard let item = currentItem, !zoom.isFit else {
             displayBody = nil
             return
@@ -726,6 +878,7 @@ final class BrowserModel {
             let body = await pipeline.load(.body, for: item)
             guard !Task.isCancelled, let self, self.currentItem?.id == id, !self.zoom.isFit else { return }
             self.displayBody = body
+            self.bodyFailed = body == nil
             self.reclamp()
         }
     }
@@ -743,6 +896,22 @@ final class BrowserModel {
             }
         }
         pipeline.prefetch(.preview, items: order)
+        // 全体表示用も先読みする（別のキューなので大プレビューと並行して進む）。
+        // 枚数はキャッシュに収まる分まで。ARW だけのコマは RAW 現像（ファイル全体の読み込み）になるので前後 1 枚まで
+        if let kind = screenKind {
+            let ns = ScreenResolution.prefetchCount(requested: n, maxPixel: screenMaxPixel,
+                                                    cacheLimit: ImagePipeline.screenCacheLimit)
+            var screenOrder: [PhotoItem] = []
+            if ns > 0 {
+                for d in 1...ns {
+                    for i in [currentIndex + d, currentIndex - d] where entries.indices.contains(i) {
+                        let item = entries[i].item
+                        if item.kind != .arwOnly || d == 1 { screenOrder.append(item) }
+                    }
+                }
+            }
+            pipeline.prefetch(kind, items: screenOrder)
+        }
 
         // 拡大中は、グループ内の前後の本体も先読みする。全体表示のときも呼んで、範囲外の本体ジョブを取り消す
         var neighbors: [PhotoItem] = []
@@ -882,6 +1051,7 @@ final class BrowserModel {
         if entries.isEmpty {
             currentIndex = 0
             displayPreview = nil
+            clearScreen()
             errorMessage = "すべての写真を \(ApplyEngine.rejectedFolderName) に移動しました。"
             return
         }

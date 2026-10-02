@@ -25,7 +25,7 @@ struct PreviewView: View {
                 if model.currentItem != nil {
                     // 画像が一時的に nil でもビューは作り直さない（ProgressView を重ねる）
                     ZoomableImageView(
-                        image: model.displayBody ?? model.displayPreview,
+                        image: model.displayImage,
                         imageRect: model.geometry.imageRect,
                         isZoomed: !model.zoom.isFit,
                         onClick: { model.click(atViewPoint: $0) },
@@ -38,7 +38,7 @@ struct PreviewView: View {
                             }
                         })
                         .accessibilityLabel(accessibilityText)
-                    if model.displayBody == nil && model.displayPreview == nil {
+                    if model.displayImage == nil {
                         ProgressView().controlSize(.small)
                     }
                 }
@@ -85,25 +85,57 @@ struct PreviewView: View {
                         .accessibilityLabel("ARW だけのファイル")
                         .help("ペアの JPG がない ARW ファイルです")
                 }
+                if model.showInfo, let item = model.currentItem {
+                    // 上端中央の読み込み中マークに重ならない幅に抑える
+                    InfoOverlay(item: item, maxWidth: min(InfoOverlay.maxWidth, max(200, model.viewSize.width / 2 - 100)))
+                }
                 Spacer()
                 GlassEffectContainer(spacing: 8) { statusBadges }
             }
             Spacer()
-            // 右カラム: 情報パネル（I で切り替え）の下に判定・拡大のボタンを置く
+            // 右カラム: 判定・拡大のボタン
             VStack(alignment: .trailing, spacing: 12) {
-                if model.showInfo, let item = model.currentItem {
-                    InfoPanel(item: item)
-                        .frame(maxHeight: .infinity, alignment: .top)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
-                } else {
-                    Spacer()
-                }
+                Spacer()
                 GlassEffectContainer(spacing: 8) { zoomControls }
             }
         }
-        .animation(.snappy(duration: 0.2), value: model.showInfo)
         .padding(14)
         .padding(.top, topInset)
+        // 上端の中央（左上のバッジと同じ高さ）
+        .overlay(alignment: .top) {
+            loadingBadge
+                .padding(.top, 14 + topInset)
+        }
+    }
+
+    /// 最高画質（全体表示は画面の画素数に縮小した本体、拡大は本体）ができるまでは仮の画像なので、
+    /// ピントの判断に使えないことを赤い点で目立たせて示す。作れなかったときは警告を出し続ける
+    @ViewBuilder
+    private var loadingBadge: some View {
+        if model.displayImage != nil {
+            switch model.displayQuality {
+            case .best:
+                EmptyView()
+            case .loading:
+                badge {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.mini)
+                        Circle().fill(.red).frame(width: 8, height: 8)
+                        Text("読み込み中").font(.caption.weight(.semibold))
+                    }
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("高画質の画像を読み込み中")
+                .help("いまは仮の画像です。高画質の画像を読み込んでいます")
+            case .degraded:
+                badge {
+                    Label("高画質を読み込めません", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.orange)
+                }
+                .help("高画質の画像を作れなかったため、仮の画像を表示しています。ピントの判断には使えません")
+            }
+        }
     }
 
     private var statusBadges: some View {

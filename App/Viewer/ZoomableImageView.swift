@@ -14,7 +14,7 @@ enum PinchPhase {
 }
 
 struct ZoomableImageView: NSViewRepresentable {
-    let image: CGImage?
+    let image: PipelineImage?
     let imageRect: CGRect
     let isZoomed: Bool
     let onClick: (CGPoint) -> Void
@@ -41,7 +41,7 @@ final class ZoomCanvasView: NSView {
     var isZoomed = false
 
     private let imageLayer = CALayer()
-    private var currentImage: CGImage?
+    private var currentImage: PipelineImage?
     private var imageRect: CGRect = .zero
     private var mouseDownPoint: CGPoint?
     private var isDragging = false
@@ -67,12 +67,12 @@ final class ZoomCanvasView: NSView {
     /// ウインドウを前面に出すだけのクリックは受け取らない
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { false }
 
-    func update(image: CGImage?, imageRect: CGRect) {
+    func update(image: PipelineImage?, imageRect: CGRect) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if image !== currentImage {
             currentImage = image
-            imageLayer.contents = image
+            imageLayer.contents = image?.layerContents
         }
         self.imageRect = imageRect
         applyRect()

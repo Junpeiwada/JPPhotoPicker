@@ -69,15 +69,24 @@ struct BrowserView: View {
     @ViewBuilder
     private var content: some View {
         if !model.hasFolder {
-            ContentUnavailableView {
-                Label("フォルダを開いてください", systemImage: "photo.on.rectangle.angled")
-            } description: {
-                Text("写真が入ったフォルダをここへドラッグするか、［フォルダを開く］を選んでください。")
-            } actions: {
-                Button("フォルダを開く…") { model.chooseFolder() }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
+            // 最近開いたフォルダは ContentUnavailableView の外に置く（中だと幅が狭く、パスが読めない）
+            VStack(spacing: 8) {
+                ContentUnavailableView {
+                    Label("フォルダを開いてください", systemImage: "photo.on.rectangle.angled")
+                } description: {
+                    Text("写真が入ったフォルダをここへドラッグするか、［フォルダを開く］を選んでください。")
+                } actions: {
+                    Button("フォルダを開く…") { model.chooseFolder() }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                if !model.recentFolders.items.isEmpty {
+                    RecentFoldersList()
+                        .padding(.horizontal, 24)
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if model.isLoading {
             ProgressView("読み込み中…")
         } else if !model.hasEntries {

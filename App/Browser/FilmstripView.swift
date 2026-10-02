@@ -120,12 +120,12 @@ private struct FilmstripCell: View {
         .padding(.trailing, isLast ? FilmstripView.groupGap / 2 : 0)
         .task(id: item.id) {
             if let c = pipeline.cached(.thumbnail, for: item) {
-                thumbnail = c
+                thumbnail = c.cgImage
             } else {
                 // 待つ間にセルが消えた（キャンセル）ときは代入しない
                 let image = await pipeline.load(.thumbnail, for: item, queuePriority: .normal)
                 guard !Task.isCancelled else { return }
-                thumbnail = image
+                thumbnail = image?.cgImage
             }
         }
         .accessibilityLabel(label)

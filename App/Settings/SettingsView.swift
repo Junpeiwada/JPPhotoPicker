@@ -8,6 +8,8 @@ enum PreferenceKey {
     static let showFocusFrame = "showFocusFrame"
     /// 情報パネル（EXIF）を表示するか
     static let showInfo = "showInfo"
+    /// 最近開いたフォルダ（`RecentFolders` の JSON）
+    static let recentFolders = "recentFolders"
 
     static let defaultPrefetchCount = 4
 
@@ -33,7 +35,7 @@ struct SettingsView: View {
                     }
                 }
             } footer: {
-                Text("大プレビューを、今のコマの前後それぞれ何枚先読みするかを指定します。増やすとコマ送りが速くなりますが、メモリを多く使います。")
+                Text("大プレビューと全体表示用の画像を、今のコマの前後それぞれ何枚先読みするかを指定します。増やすとコマ送りが速くなりますが、メモリを多く使います。全体表示用の画像は、メモリの上限に収まる枚数までに絞ります（ARW だけのコマは前後 1 枚まで）。")
             }
         }
         .formStyle(.grouped)

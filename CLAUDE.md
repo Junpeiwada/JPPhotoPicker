@@ -48,7 +48,7 @@ GUI を目視せずに動作を確かめる仕組み。
 ### App
 
 - `Browser/BrowserModel` — `@MainActor @Observable` の中心。コマ一覧・判定・ズーム・保存（遅延書き込み、終了時に flush）・適用の状態をすべて持ち、ビューとキー操作はこのメソッドを呼ぶだけ
-- `Imaging/ImagePipeline` — サムネイル / 大プレビュー（MPF 1920px）/ 本体の3段階。種類ごとの `OperationQueue` でデコードし（Swift の協調プールを塞がない）、同じ画像の要求は1ジョブにまとめ、`NSCache` に置く。ARW だけのファイルは埋め込み JPEG、拡大時のみ RAW 現像
+- `Imaging/ImagePipeline` — サムネイル / 大プレビュー（MPF 1920px、仮表示）/ 全体表示用（本体を画面の画素数に縮小）/ 本体の4段階。種類ごとの `OperationQueue` でデコードし（Swift の協調プールを塞がない）、同じ画像の要求は1ジョブにまとめ、`NSCache` に置く。サムネイル以外は **IOSurface に描いてから持つ**（CGImage をレイヤーに渡すと、コミット時にメインスレッドで色変換・コピーが走り、コマ送りが 1 回 40ms ほど止まる）。ARW だけのファイルは埋め込み JPEG、全体表示・拡大時は RAW 現像
 - `Viewer/ZoomableImageView` — ピンチ・ドラッグ・スクロール・クリックを NSView で受けて `BrowserModel` に渡す
 - `AppLifecycle` — 適用・取り消しの実行中は終了やウインドウのクローズを止める
 
