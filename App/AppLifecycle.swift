@@ -4,7 +4,7 @@ import AppKit
 /// 適用・取り消しの実行中に、終了（⌘Q）で中途半端にならないよう確認する。
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    /// PhotoPickerApp が作ったモデル（アプリにつき 1 つ）
+    /// JPPhotoPickerApp が作ったモデル（アプリにつき 1 つ）
     static var model: BrowserModel?
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

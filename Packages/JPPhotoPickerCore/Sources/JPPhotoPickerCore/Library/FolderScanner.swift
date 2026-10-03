@@ -155,7 +155,7 @@ public enum PhotoMetadataLoader {
 
     /// 読み込み専用の並列キュー（協調スレッドプールを塞がないため）
     private static let loadQueue = DispatchQueue(
-        label: "PhotoPickerCore.metadata-load", qos: .userInitiated, attributes: .concurrent)
+        label: "JPPhotoPickerCore.metadata-load", qos: .userInitiated, attributes: .concurrent)
 }
 
 /// 並列読み込みの共有状態。各コマの書き込み先は重ならない。

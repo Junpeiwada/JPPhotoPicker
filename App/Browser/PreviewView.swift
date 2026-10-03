@@ -1,5 +1,5 @@
 import SwiftUI
-import PhotoPickerCore
+import JPPhotoPickerCore
 
 /// 写真の閲覧領域。ダークニュートラルの背景に写真を置き、バッジ類は Liquid Glass で角に重ねる。
 struct PreviewView: View {

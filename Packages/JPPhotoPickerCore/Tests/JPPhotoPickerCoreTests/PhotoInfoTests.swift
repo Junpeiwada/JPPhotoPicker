@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import PhotoPickerCore
+@testable import JPPhotoPickerCore
 
 @Suite struct PhotoInfoTests {
     /// ImageIO が返す形に近い辞書（値は NSNumber / NSString / NSArray で来る）

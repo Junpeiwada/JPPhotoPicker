@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import PhotoPickerCore
+@testable import JPPhotoPickerCore
 
 // MARK: - 補助
 
@@ -18,7 +18,7 @@ private func item(_ name: String, burst seq: Int? = nil, time: Double, ext: Stri
 }
 
 private func makeTempDir() throws -> URL {
-    let d = FileManager.default.temporaryDirectory.appendingPathComponent("PhotoPickerTests-\(UUID().uuidString)")
+    let d = FileManager.default.temporaryDirectory.appendingPathComponent("JPPhotoPickerTests-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
     return d
 }
@@ -33,7 +33,7 @@ struct FolderScannerTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let fm = FileManager.default
         for n in ["A1_0001.JPG", "a1_0001.arw", "A1_0002.jpeg", "A1_0003.ARW", "A1_0004.jpg", "A1_0004.ARW",
-                  ".hidden.jpg", "memo.txt", ".photopicker.json"] {
+                  ".hidden.jpg", "memo.txt", ".jpphotopicker.json"] {
             fm.createFile(atPath: dir.appendingPathComponent(n).path, contents: Data([0]))
         }
         try fm.createDirectory(at: dir.appendingPathComponent("_rejected"), withIntermediateDirectories: true)
@@ -374,7 +374,7 @@ struct SessionStoreTests {
                                   moves: [MoveRecord(from: "A1_0002.JPG", to: "_rejected/A1_0002.JPG"),
                                           MoveRecord(from: "A1_0002.ARW", to: "_rejected/A1_0002.ARW")])])
         try store.save(data)
-        #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent(".photopicker.json").path))
+        #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent(".jpphotopicker.json").path))
         #expect(try store.load() == data)
 
         // 上書き
@@ -384,22 +384,22 @@ struct SessionStoreTests {
         #expect(try store.load() == d2)
         // 一時ファイルが残らない
         let files = try FileManager.default.contentsOfDirectory(atPath: dir.path)
-        #expect(files == [".photopicker.json"])
+        #expect(files == [".jpphotopicker.json"])
     }
 
     @Test("壊れたファイルは .broken-<日時> に退避してエラー（退避先を含む）。元ファイルは残る")
     func corrupt() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let url = dir.appendingPathComponent(".photopicker.json")
+        let url = dir.appendingPathComponent(".jpphotopicker.json")
         try Data("not json".utf8).write(to: url)
         do {
             _ = try SessionStore(folder: dir).load()
             Issue.record("エラーになるはず")
         } catch let SessionStoreError.corrupted(backup, _) {
             let b = try #require(backup)
-            #expect(b.lastPathComponent.hasPrefix(".photopicker.json.broken-"))
-            let stamp = b.lastPathComponent.dropFirst(".photopicker.json.broken-".count)
+            #expect(b.lastPathComponent.hasPrefix(".jpphotopicker.json.broken-"))
+            let stamp = b.lastPathComponent.dropFirst(".jpphotopicker.json.broken-".count)
             #expect(stamp.count == 15 && stamp.dropFirst(8).first == "-")   // yyyyMMdd-HHmmss
             #expect(try Data(contentsOf: b) == Data("not json".utf8))
             #expect(FileManager.default.fileExists(atPath: url.path))
@@ -415,11 +415,11 @@ struct SessionStoreTests {
          "decisions":{"a.JPG":"picked","b.JPG":"superstar","c.JPG":"rejected","d.JPG":"undecided","e.JPG":42},
          "applied":[]}
         """
-        try Data(json.utf8).write(to: dir.appendingPathComponent(".photopicker.json"))
+        try Data(json.utf8).write(to: dir.appendingPathComponent(".jpphotopicker.json"))
         // 値が文字列でない要素があると全体は読めない（壊れた扱い）ので、e を除いたものを試す
         _ = try? SessionStore(folder: dir).load()
         let ok = json.replacingOccurrences(of: ",\"e.JPG\":42", with: "")
-        try Data(ok.utf8).write(to: dir.appendingPathComponent(".photopicker.json"))
+        try Data(ok.utf8).write(to: dir.appendingPathComponent(".jpphotopicker.json"))
         let s = try SessionStore(folder: dir).load()
         #expect(s.decisions == ["a.JPG": .picked, "c.JPG": .rejected])
     }
@@ -428,7 +428,7 @@ struct SessionStoreTests {
     func futureVersion() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let url = dir.appendingPathComponent(".photopicker.json")
+        let url = dir.appendingPathComponent(".jpphotopicker.json")
         let json = #"{"version":99,"decisions":{"a.JPG":"picked","b.JPG":"newthing"},"applied":[],"extra":{"x":1}}"#
         try Data(json.utf8).write(to: url)
         let store = SessionStore(folder: dir)
@@ -443,7 +443,7 @@ struct SessionStoreTests {
         let weird = #"{"version":99,"decisions":{},"applied":[{"when":"x"}]}"#
         try Data(weird.utf8).write(to: url)
         #expect(try store.load().version == 99)
-        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path) == [".photopicker.json"])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path) == [".jpphotopicker.json"])
     }
 
     // MARK: - C10 / C11
@@ -453,7 +453,7 @@ struct SessionStoreTests {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("PPStore-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
-        try Data("{ broken".utf8).write(to: dir.appendingPathComponent(".photopicker.json"))
+        try Data("{ broken".utf8).write(to: dir.appendingPathComponent(".jpphotopicker.json"))
         var backups = Set<URL>()
         for _ in 0..<3 {
             do { _ = try SessionStore(folder: dir).load(); Issue.record("投げるはず") }
@@ -463,7 +463,7 @@ struct SessionStoreTests {
         let names = try FileManager.default.contentsOfDirectory(atPath: dir.path).filter { $0.contains(".broken-") }
         #expect(names.count == 1)
         // 内容が変われば新しい退避を作る
-        try Data("{ broken2".utf8).write(to: dir.appendingPathComponent(".photopicker.json"))
+        try Data("{ broken2".utf8).write(to: dir.appendingPathComponent(".jpphotopicker.json"))
         _ = try? SessionStore(folder: dir).load()
         let names2 = try FileManager.default.contentsOfDirectory(atPath: dir.path).filter { $0.contains(".broken-") }
         #expect(names2.count == 2)

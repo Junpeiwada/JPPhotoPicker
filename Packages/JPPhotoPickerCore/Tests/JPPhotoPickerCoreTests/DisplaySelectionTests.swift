@@ -1,5 +1,5 @@
 import Testing
-@testable import PhotoPickerCore
+@testable import JPPhotoPickerCore
 
 @Suite("表示する画像の選択（DisplaySelection）")
 struct DisplaySelectionTests {

@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 import QuartzCore
-import PhotoPickerCore
+import JPPhotoPickerCore
 
 /// 画像の表示・ドラッグ・2本指スクロール・ホイール・⌘+スクロール・ピンチ・クリックを受ける NSView のラッパー。
 /// 表示位置は `ViewportGeometry.imageRect`（ZoomState と一貫した計算）に従い、レイヤーを直接動かす。

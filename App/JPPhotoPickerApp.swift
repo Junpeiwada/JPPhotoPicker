@@ -1,8 +1,8 @@
 import SwiftUI
-import PhotoPickerCore
+import JPPhotoPickerCore
 
 @main
-struct PhotoPickerApp: App {
+struct JPPhotoPickerApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model: BrowserModel
 
@@ -13,7 +13,7 @@ struct PhotoPickerApp: App {
     }
 
     var body: some Scene {
-        Window("PhotoPicker", id: "main") {
+        Window("JPPhotoPicker", id: "main") {
             BrowserView()
                 .environment(model)
                 .task {

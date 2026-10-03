@@ -1,31 +1,31 @@
-name: PhotoPicker
+name: JPPhotoPicker
 options:
   developmentLanguage: ja
   bundleIdPrefix: com.junpeiwada
   deploymentTarget:
     macOS: "26.0"
 packages:
-  PhotoPickerCore:
-    path: Packages/PhotoPickerCore
+  JPPhotoPickerCore:
+    path: Packages/JPPhotoPickerCore
 settings:
   base:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
     MACOSX_DEPLOYMENT_TARGET: "26.0"
 targets:
-  PhotoPicker:
+  JPPhotoPicker:
     type: application
     platform: macOS
     sources:
       - path: App
     dependencies:
-      - package: PhotoPickerCore
+      - package: JPPhotoPickerCore
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.junpeiwada.PhotoPicker
-        PRODUCT_NAME: PhotoPicker
+        PRODUCT_BUNDLE_IDENTIFIER: com.junpeiwada.JPPhotoPicker
+        PRODUCT_NAME: JPPhotoPicker
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: PhotoPicker
+        INFOPLIST_KEY_CFBundleDisplayName: JPPhotoPicker
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.photography
         CODE_SIGN_STYLE: Automatic

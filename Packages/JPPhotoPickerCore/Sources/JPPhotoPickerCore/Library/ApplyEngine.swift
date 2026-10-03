@@ -87,7 +87,7 @@ public enum JournalRecovery: Sendable, Equatable {
     case unreadable(String)
 }
 
-/// 適用の途中経過（`_rejected/.photopicker-apply-journal.json`）
+/// 適用の途中経過（`_rejected/.jpphotopicker-apply-journal.json`）
 struct ApplyJournal: Codable, Equatable {
     var id: UUID
     var date: Date
@@ -101,12 +101,12 @@ struct ApplyJournal: Codable, Equatable {
 /// `SessionStore` は触らない。呼び出し側が結果の `record` を `SessionData.appendApplied` で追記して保存する。
 /// 同期 API。UI からはバックグラウンドで呼ぶこと。
 ///
-/// 適用中は `_rejected/.photopicker-apply-journal.json` に移動の記録を書き続ける。
+/// 適用中は `_rejected/.jpphotopicker-apply-journal.json` に移動の記録を書き続ける。
 /// 正常終了後もジャーナルは残る。呼び出し側は `record` を SessionData に取り込んで保存した後で `clearJournal()` を呼ぶこと。
 /// 適用の途中でアプリが落ちたときは、次にフォルダを開いたときに `recoverJournal()` で記録を復旧できる。
 public struct ApplyEngine: Sendable {
     public static let rejectedFolderName = "_rejected"
-    public static let journalFileName = ".photopicker-apply-journal.json"
+    public static let journalFileName = ".jpphotopicker-apply-journal.json"
     /// ジャーナルを書き出す間隔（移動の件数）
     static let journalBatchSize = 32
 
@@ -280,7 +280,7 @@ public struct ApplyEngine: Sendable {
     /// - `.none`: ジャーナルが無い、または復旧できる移動が 1 件も無かった（ジャーナルは片付け済み）
     /// - `.recovered`: 記録を返す。ジャーナルは残すので、呼び出し側が `SessionData.appendApplied` で取り込んで保存した後に
     ///   `clearJournal()` を呼ぶこと（`appendApplied` は同じ `id` を二重に追加しない）
-    /// - `.broken`: ジャーナルが壊れていた。フォルダ直下の `.photopicker-apply-journal.json.broken-…` に退避した
+    /// - `.broken`: ジャーナルが壊れていた。フォルダ直下の `.jpphotopicker-apply-journal.json.broken-…` に退避した
     ///   （`_rejected` の空判定を妨げないよう、`_rejected` の外に置く）。取り消せない適用があるかもしれないので警告すること
     /// - `.unreadable`: ジャーナルを読めない・退避できない・`_rejected` がフォルダの外を指している。ジャーナルは残る
     public func recoverJournal() -> JournalRecovery {

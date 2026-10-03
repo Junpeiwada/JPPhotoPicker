@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 import CoreGraphics
-import PhotoPickerCore
+import JPPhotoPickerCore
 
 /// 並べ替え後の 1 コマ（フィルムストリップ・コマ送り用の平らな並び）
 struct BrowserEntry: Identifiable, Hashable {

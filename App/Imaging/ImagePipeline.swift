@@ -5,7 +5,7 @@ import CoreVideo
 import ImageIO
 import IOSurface
 import Synchronization
-import PhotoPickerCore
+import JPPhotoPickerCore
 
 /// 画像の取り出し元の種類。ARW だけのファイルは `.arw` の分岐で扱う。
 enum ImageSource: Sendable {
@@ -142,7 +142,7 @@ final class ImagePipeline: @unchecked Sendable {
 
     private static func makeQueue(_ name: String, concurrency: Int) -> OperationQueue {
         let q = OperationQueue()
-        q.name = "PhotoPicker.decode.\(name)"
+        q.name = "JPPhotoPicker.decode.\(name)"
         q.maxConcurrentOperationCount = concurrency
         q.qualityOfService = .userInitiated
         return q

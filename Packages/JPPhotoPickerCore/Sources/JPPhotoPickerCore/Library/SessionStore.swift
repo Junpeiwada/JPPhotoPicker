@@ -34,7 +34,7 @@ public struct ApplyRecord: Sendable, Codable, Hashable, Identifiable {
     }
 }
 
-/// `.photopicker.json` の中身
+/// `.jpphotopicker.json` の中身
 public struct SessionData: Sendable, Codable, Equatable {
     public var version: Int
     /// コマ ID（ファイル名）→ 判定。未判定は持たない
@@ -97,9 +97,9 @@ public enum SessionStoreError: Error, Sendable, Equatable, LocalizedError {
     }
 }
 
-/// 開いたフォルダ直下の `.photopicker.json` の読み書き
+/// 開いたフォルダ直下の `.jpphotopicker.json` の読み書き
 public struct SessionStore: Sendable {
-    public static let fileName = ".photopicker.json"
+    public static let fileName = ".jpphotopicker.json"
 
     public let folder: URL
 
@@ -119,7 +119,7 @@ public struct SessionStore: Sendable {
 
     /// 読み込む。ファイルが無ければ空のデータを返す。
     ///
-    /// - 読めない（JSON として壊れている）ときは、元のファイルを `.photopicker.json.broken-<yyyyMMdd-HHmmss>` に
+    /// - 読めない（JSON として壊れている）ときは、元のファイルを `.jpphotopicker.json.broken-<yyyyMMdd-HHmmss>` に
     ///   コピーして退避し、`SessionStoreError.corrupted`（退避先を含む）を投げる。
     /// - `version > currentVersion` のファイルは、読める範囲で読む（読めなくても空の `SessionData(version:)` を返す）。
     ///   `save` はこのファイルを上書きしない。

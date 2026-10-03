@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import PhotoPickerCore
+@testable import JPPhotoPickerCore
 
 // MARK: - 合成 ARW（リトルエンディアンの TIFF 構造）
 
@@ -76,7 +76,7 @@ private struct SyntheticARW {
 }
 
 private func makeTempDir() throws -> URL {
-    let d = FileManager.default.temporaryDirectory.appendingPathComponent("PhotoPickerARW-\(UUID().uuidString)")
+    let d = FileManager.default.temporaryDirectory.appendingPathComponent("JPPhotoPickerARW-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
     return d
 }

@@ -4,19 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 概要
 
-Sony α で JPG + ARW を同時記録した写真を高速に選別する macOS 26 向け SwiftUI アプリ。仕様の正本は [Docs/仕様.md](Docs/仕様.md)、Sony MakerNote の調査結果は [Docs/メタデータ調査.md](Docs/メタデータ調査.md)、進捗は [Docs/実装計画-PhotoPicker.md](Docs/実装計画-PhotoPicker.md)。挙動を変えるときはまず仕様.md を確認し、仕様側も更新する。
+Sony α で JPG + ARW を同時記録した写真を高速に選別する macOS 26 向け SwiftUI アプリ。仕様の正本は [Docs/仕様.md](Docs/仕様.md)、Sony MakerNote の調査結果は [Docs/メタデータ調査.md](Docs/メタデータ調査.md)、進捗は [Docs/実装計画-JPPhotoPicker.md](Docs/実装計画-JPPhotoPicker.md)。挙動を変えるときはまず仕様.md を確認し、仕様側も更新する。
 
 ## コマンド
 
 ```bash
 # ロジックのテスト（Swift Testing）
-cd Packages/PhotoPickerCore && swift test
+cd Packages/JPPhotoPickerCore && swift test
 swift test --filter ZoomStateTests          # スイート単位
 swift test --filter "ZoomStateTests/<関数名>" # 1件だけ
 
-# アプリのビルド（PhotoPicker.xcodeproj は git 管理外。project.yml から生成する）
+# アプリのビルド（JPPhotoPicker.xcodeproj は git 管理外。project.yml から生成する）
 xcodegen generate
-xcodebuild -project PhotoPicker.xcodeproj -scheme PhotoPicker -configuration Debug build -quiet
+xcodebuild -project JPPhotoPicker.xcodeproj -scheme JPPhotoPicker -configuration Debug build -quiet
 ```
 
 - Swift 6.0 / `SWIFT_STRICT_CONCURRENCY: complete`。並行性の警告・エラーを出さないこと
@@ -27,7 +27,7 @@ xcodebuild -project PhotoPicker.xcodeproj -scheme PhotoPicker -configuration Deb
 GUI を目視せずに動作を確かめる仕組み。
 
 ```bash
-<ビルドした PhotoPicker.app>/Contents/MacOS/PhotoPicker \
+<ビルドした JPPhotoPicker.app>/Contents/MacOS/JPPhotoPicker \
   -openFolder /path/to/folder \
   -debugScript "wait,z,next,p,log:/tmp/state.txt,snap:/tmp/shot.png,quit"
 ```
@@ -36,13 +36,13 @@ GUI を目視せずに動作を確かめる仕組み。
 
 ## 構成
 
-2層に分かれている。**判定・グループ化・メタデータ・ズーム計算などの純粋なロジックは `Packages/PhotoPickerCore` に置いて `swift test` で検証し**、`App/` は画面・画像デコード・AppKit 連携だけを持つ。新しいロジックはテストできるよう Core 側に置く。
+2層に分かれている。**判定・グループ化・メタデータ・ズーム計算などの純粋なロジックは `Packages/JPPhotoPickerCore` に置いて `swift test` で検証し**、`App/` は画面・画像デコード・AppKit 連携だけを持つ。新しいロジックはテストできるよう Core 側に置く。
 
-### PhotoPickerCore
+### JPPhotoPickerCore
 
 - `Metadata/` — exiftool に依存しない自前パーサー。JPEG の先頭（APP1 / APP2 MPF）だけを読み、Exif・Orientation・IFD1 サムネイル位置・MPF プレビュー位置と Sony MakerNote（`ReleaseMode` / `SequenceNumber` / `FocusLocation` / `FocusFrameSize`）を取り出す。ARW は TIFF 構造から同じ情報を読む。`FocusFrameSize` / `FocusLocation` は型宣言が undefined のことがあるため u16 として生読みしている
 - `Geometry/FocusGeometry` — フォーカス位置を 0〜1 の比率にし、Orientation に合わせて変換する（座標はセンサー向きで記録されている）
-- `Library/` — `FolderScanner`（JPG/ARW のペア付け、大文字小文字無視）→ `BurstGrouper`（連写グループ化）→ `Decision`/`DecisionHistory`（判定と取り消し履歴、`DecisionBook`）→ `SessionStore`（`.photopicker.json`、version 付き。新しい版のファイルは読み取り専用扱い）→ `ApplyEngine`（`_rejected/` への一括移動と取り消し）
+- `Library/` — `FolderScanner`（JPG/ARW のペア付け、大文字小文字無視）→ `BurstGrouper`（連写グループ化）→ `Decision`/`DecisionHistory`（判定と取り消し履歴、`DecisionBook`）→ `SessionStore`（`.jpphotopicker.json`、version 付き。新しい版のファイルは読み取り専用扱い）→ `ApplyEngine`（`_rejected/` への一括移動と取り消し）
 - `Viewer/` — `ZoomState`（全体 / 100% / 200% / ピンチ倍率、コマ移動時の位置保持ルール）と `ViewportGeometry`
 
 ### App

@@ -1,9 +1,9 @@
 import Testing
 import Foundation
-@testable import PhotoPickerCore
+@testable import JPPhotoPickerCore
 
 private func makeTempDir() throws -> URL {
-    let d = FileManager.default.temporaryDirectory.appendingPathComponent("PhotoPickerJPEG-\(UUID().uuidString)")
+    let d = FileManager.default.temporaryDirectory.appendingPathComponent("JPPhotoPickerJPEG-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
     return d
 }

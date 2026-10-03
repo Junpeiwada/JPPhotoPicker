@@ -1,5 +1,5 @@
 import SwiftUI
-import PhotoPickerCore
+import JPPhotoPickerCore
 
 /// 下部のフィルムストリップ。横スクロール、グループ（単写は 1 枚で 1 グループ）は間隔で区切り、
 /// 今のグループだけ下線を引く。1 コマ単位の LazyHStack に平らに並べ、下線は各セルが「先頭 / 中 / 末尾」に応じて描く。

@@ -1,9 +1,9 @@
 import Testing
 import Foundation
-@testable import PhotoPickerCore
+@testable import JPPhotoPickerCore
 
 private func makeTempDir() throws -> URL {
-    let d = FileManager.default.temporaryDirectory.appendingPathComponent("PhotoPickerApply-\(UUID().uuidString)")
+    let d = FileManager.default.temporaryDirectory.appendingPathComponent("JPPhotoPickerApply-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
     return d
 }
@@ -188,7 +188,7 @@ struct ApplyEngineTests {
         var session = SessionData()
         session.appendApplied(try #require(r.record))
         #expect(session.applied.count == 1)
-        #expect(has(dir, "_rejected/.photopicker-apply-journal.json"))   // 適用後もジャーナルは残る
+        #expect(has(dir, "_rejected/.jpphotopicker-apply-journal.json"))   // 適用後もジャーナルは残る
         engine.clearJournal()
 
         let rec = session.applied[0]
@@ -290,7 +290,7 @@ struct ApplyEngineTests {
         let dup = session.appendApplied(recovered)
         #expect(!dup)
         engine.clearJournal()
-        #expect(!has(dir, "_rejected/.photopicker-apply-journal.json"))
+        #expect(!has(dir, "_rejected/.jpphotopicker-apply-journal.json"))
         #expect(engine.recoverJournal() == .none)
         #expect(has(dir, "_rejected/A1_0001.JPG"))
     }
@@ -312,7 +312,7 @@ struct ApplyEngineTests {
                                    moves: [mv("A1_0001.JPG"), mv("A1_0002.JPG")],
                                    pending: [mv("A1_0003.JPG"), mv("A1_0004.JPG")])
         let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601
-        try enc.encode(journal).write(to: rej.appendingPathComponent(".photopicker-apply-journal.json"))
+        try enc.encode(journal).write(to: rej.appendingPathComponent(".jpphotopicker-apply-journal.json"))
 
         let engine = ApplyEngine(folder: dir)
         guard case .recovered(let rec) = engine.recoverJournal() else { Issue.record("recovered ではない"); return }
@@ -335,14 +335,14 @@ struct ApplyEngineTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let rej = dir.appendingPathComponent("_rejected")
         try FileManager.default.createDirectory(at: rej, withIntermediateDirectories: true)
-        let jurl = rej.appendingPathComponent(".photopicker-apply-journal.json")
+        let jurl = rej.appendingPathComponent(".jpphotopicker-apply-journal.json")
         try Data("not json".utf8).write(to: jurl)
         let engine = ApplyEngine(folder: dir)
         guard case .broken(let backup) = engine.recoverJournal() else { Issue.record("broken ではない"); return }
         #expect(!FileManager.default.fileExists(atPath: jurl.path))
         // 退避先はフォルダ直下（_rejected の中ではない）で、中身は元のまま
         #expect(backup.deletingLastPathComponent().standardizedFileURL.path == dir.standardizedFileURL.path)
-        #expect(backup.lastPathComponent.hasPrefix(".photopicker-apply-journal.json.broken"))
+        #expect(backup.lastPathComponent.hasPrefix(".jpphotopicker-apply-journal.json.broken"))
         #expect(try Data(contentsOf: backup) == Data("not json".utf8))
         // 空になった _rejected は片付く
         #expect(!has(dir, "_rejected"))
@@ -363,7 +363,7 @@ struct ApplyEngineTests {
         let journal = ApplyJournal(id: UUID(), date: Date(), moves: [],
                                    pending: [MoveRecord(from: "A1_0001.JPG", to: "_rejected/A1_0001.JPG")])
         let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601
-        try enc.encode(journal).write(to: rej.appendingPathComponent(".photopicker-apply-journal.json"))
+        try enc.encode(journal).write(to: rej.appendingPathComponent(".jpphotopicker-apply-journal.json"))
         let engine = ApplyEngine(folder: dir)
         #expect(engine.recoverJournal() == .none)
         #expect(!has(dir, "_rejected"))
@@ -375,7 +375,7 @@ struct ApplyEngineTests {
         let dir = try makeTempDir()
         let outside = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir); try? FileManager.default.removeItem(at: outside) }
-        try Data("x".utf8).write(to: outside.appendingPathComponent(".photopicker-apply-journal.json"))
+        try Data("x".utf8).write(to: outside.appendingPathComponent(".jpphotopicker-apply-journal.json"))
         try FileManager.default.createSymbolicLink(at: dir.appendingPathComponent("_rejected"), withDestinationURL: outside)
         guard case .unreadable = ApplyEngine(folder: dir).recoverJournal() else { Issue.record("unreadable ではない"); return }
     }
@@ -397,7 +397,7 @@ struct ApplyEngineTests {
 
     @Test("/tmp（/private/tmp への symlink）経由のフォルダ URL で apply → undo が往復できる")
     func applyUndoThroughSymlinkedFolder() throws {
-        let real = URL(fileURLWithPath: "/private/tmp/PhotoPickerSymlink-\(UUID().uuidString)")
+        let real = URL(fileURLWithPath: "/private/tmp/JPPhotoPickerSymlink-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: real) }
         let viaSymlink = URL(fileURLWithPath: "/tmp/" + real.lastPathComponent, isDirectory: true)

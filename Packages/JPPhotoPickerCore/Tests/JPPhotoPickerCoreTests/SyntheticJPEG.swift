@@ -1,5 +1,5 @@
 import Foundation
-@testable import PhotoPickerCore
+@testable import JPPhotoPickerCore
 
 /// テスト用に Sony 風の JPEG（SOI + APP1 Exif + APP2 MPF + SOS + 末尾に MPF 2 枚目）を組み立てる。
 /// 実サンプルが無い環境でも、パーサーの経路（II/MM・MakerNote・サムネイル・MPF・追加読み）を検証するためのもの。

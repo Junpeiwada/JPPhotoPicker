@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import PhotoPickerCore
+@testable import JPPhotoPickerCore
 
 @Suite("拡大表示（ZoomState）")
 struct ZoomStateTests {

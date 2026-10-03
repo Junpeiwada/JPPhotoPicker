@@ -1,5 +1,5 @@
 import SwiftUI
-import PhotoPickerCore
+import JPPhotoPickerCore
 
 /// 起動画面の「最近開いたフォルダ」。1 クリックで開く。
 /// 見つからないフォルダは薄く出す（押すと見つからない旨を知らせる。右クリックで履歴から削除できるよう、無効にはしない）。

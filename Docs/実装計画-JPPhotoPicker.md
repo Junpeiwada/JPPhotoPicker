@@ -1,4 +1,4 @@
-# 実装計画-PhotoPicker
+# 実装計画-JPPhotoPicker
 
 ## 変更履歴
 
@@ -13,7 +13,7 @@
 
 ## 概要
 
-[仕様.md](仕様.md) の PhotoPicker を新規に作る。判定・グループ化・メタデータ読み取りなどのロジックは Swift Package `PhotoPickerCore` に置いて `swift test` で検証し、画面は XcodeGen で生成する macOS アプリ `PhotoPicker` に置く。
+[仕様.md](仕様.md) の JPPhotoPicker を新規に作る。判定・グループ化・メタデータ読み取りなどのロジックは Swift Package `JPPhotoPickerCore` に置いて `swift test` で検証し、画面は XcodeGen で生成する macOS アプリ `JPPhotoPicker` に置く。
 
 - **対象**: 仕様.md の「決定事項」〜「速度設計」のすべて
 - **やらないこと**: 仕様.md の「対象外」、未決事項（キャッシュ上限は仮値で実装し、実測は後で行う）、コミット
@@ -52,17 +52,17 @@
 
 ### タスク
 
-- [x] **P1-1**: プロジェクトの骨組みを作る。`project.yml`（XcodeGen、macOS 26、アプリ `PhotoPicker`）、`Packages/PhotoPickerCore/Package.swift`、`.gitignore`
-- [x] **P1-2**: TIFF / IFD の読み取り（エンディアン、IFD0・ExifIFD・IFD1 のたどり方）（`Packages/PhotoPickerCore/Sources/PhotoPickerCore/Metadata/TIFFReader.swift`）
+- [x] **P1-1**: プロジェクトの骨組みを作る。`project.yml`（XcodeGen、macOS 26、アプリ `JPPhotoPicker`）、`Packages/JPPhotoPickerCore/Package.swift`、`.gitignore`
+- [x] **P1-2**: TIFF / IFD の読み取り（エンディアン、IFD0・ExifIFD・IFD1 のたどり方）（`Packages/JPPhotoPickerCore/Sources/JPPhotoPickerCore/Metadata/TIFFReader.swift`）
 - [x] **P1-3**: JPEG の APP1 と APP2(MPF) を探し、Exif・撮影時刻（SubSec・タイムゾーン込み）・Orientation・IFD1 サムネイル位置・MPF 2枚目の位置を取り出す（`.../Metadata/JPEGMetadataReader.swift`）
 - [x] **P1-4**: Sony MakerNote（`SONY DSC \0\0\0` ヘッダー）から `ReleaseMode` / `SequenceNumber` / `FocusLocation` / `FocusFrameSize` を取り出す（`.../Metadata/SonyMakerNote.swift`）
 - [x] **P1-5**: 結果をまとめる型 `PhotoMetadata` と、フォーカス位置の比率化・Orientation 変換（`.../Metadata/PhotoMetadata.swift`、`.../Geometry/FocusGeometry.swift`）
-- [x] **P1-6**: 単体テスト。サンプル（`~/Dropbox/受け渡し用フォルダ/連射インターバル/`、無ければ skip）で exiftool の実測値と一致すること、Orientation 1〜8 の座標変換（`Packages/PhotoPickerCore/Tests/PhotoPickerCoreTests/`）
+- [x] **P1-6**: 単体テスト。サンプル（`~/Dropbox/受け渡し用フォルダ/連射インターバル/`、無ければ skip）で exiftool の実測値と一致すること、Orientation 1〜8 の座標変換（`Packages/JPPhotoPickerCore/Tests/JPPhotoPickerCoreTests/`）
 
 ### 完了確認
 
 ```bash
-cd Packages/PhotoPickerCore && swift test
+cd Packages/JPPhotoPickerCore && swift test
 # 期待: 全件 pass（A1_07913 → ReleaseMode 2, Seq 1, FocusLocation 8640 4864 5805 2452 など）
 ```
 
@@ -70,7 +70,7 @@ cd Packages/PhotoPickerCore && swift test
 
 ## フェーズ2: グループ化・判定・保存
 
-**目標**: フォルダを渡すと、並び・連写グループ・判定状態・移動対象が決まり、`.photopicker.json` に保存・復元できる
+**目標**: フォルダを渡すと、並び・連写グループ・判定状態・移動対象が決まり、`.jpphotopicker.json` に保存・復元できる
 
 ### タスク
 
@@ -78,13 +78,13 @@ cd Packages/PhotoPickerCore && swift test
 - [x] **P2-2**: 並べ替えと連写グループ化（先頭番号 = ファイル番号 − SequenceNumber + 1、番号が取れないときの代替ルール）（`.../Library/BurstGrouper.swift`）
 - [x] **P2-3**: 判定モデル（未判定 / 採用 / 不採用）と、適用時に移すかどうかのルール（`.../Library/Decision.swift`）
 - [x] **P2-4**: 取り消し / やり直しの履歴（どのコマの判定かを持つ）（`.../Library/DecisionHistory.swift`）
-- [x] **P2-5**: `.photopicker.json` の保存と読み込み（判定、適用の記録）（`.../Library/SessionStore.swift`）
+- [x] **P2-5**: `.jpphotopicker.json` の保存と読み込み（判定、適用の記録）（`.../Library/SessionStore.swift`）
 - [x] **P2-6**: 単体テスト（区切りはサンプル47枚の先頭番号表と一致、移動ルール、履歴、保存の往復）
 
 ### 完了確認
 
 ```bash
-cd Packages/PhotoPickerCore && swift test
+cd Packages/JPPhotoPickerCore && swift test
 # 期待: 全件 pass
 ```
 
@@ -96,7 +96,7 @@ cd Packages/PhotoPickerCore && swift test
 
 ### タスク
 
-- [x] **P3-1**: アプリの入口と状態（`App/PhotoPickerApp.swift`、`App/Browser/BrowserModel.swift`）。⌘O・ドラッグ&ドロップでフォルダを開く
+- [x] **P3-1**: アプリの入口と状態（`App/JPPhotoPickerApp.swift`、`App/Browser/BrowserModel.swift`）。⌘O・ドラッグ&ドロップでフォルダを開く
 - [x] **P3-2**: 画像の読み込みとキャッシュ（サムネイル / MPF プレビュー / 本体、NSCache、前後 N 枚の先読み）（`App/Imaging/ImagePipeline.swift`）
 - [x] **P3-3**: 大プレビューと状態バッジ（`App/Browser/PreviewView.swift`）
 - [x] **P3-4**: フィルムストリップ（連写グループの枠と背景、採用は緑・不採用は暗く）（`App/Browser/FilmstripView.swift`）
@@ -107,7 +107,7 @@ cd Packages/PhotoPickerCore && swift test
 ### 完了確認
 
 ```bash
-xcodegen generate && xcodebuild -project PhotoPicker.xcodeproj -scheme PhotoPicker -configuration Debug build -quiet
+xcodegen generate && xcodebuild -project JPPhotoPicker.xcodeproj -scheme JPPhotoPicker -configuration Debug build -quiet
 # 期待: ビルド成功（警告は許容、エラー 0）
 ```
 
@@ -131,7 +131,7 @@ xcodegen generate && xcodebuild -project PhotoPicker.xcodeproj -scheme PhotoPick
 ### 完了確認
 
 ```bash
-cd Packages/PhotoPickerCore && swift test && cd ../.. && xcodebuild -project PhotoPicker.xcodeproj -scheme PhotoPicker build -quiet
+cd Packages/JPPhotoPickerCore && swift test && cd ../.. && xcodebuild -project JPPhotoPicker.xcodeproj -scheme JPPhotoPicker build -quiet
 # 期待: テスト全件 pass、ビルド成功
 ```
 
@@ -153,7 +153,7 @@ cd Packages/PhotoPickerCore && swift test && cd ../.. && xcodebuild -project Pho
 ### 完了確認
 
 ```bash
-cd Packages/PhotoPickerCore && swift test
+cd Packages/JPPhotoPickerCore && swift test
 # 期待: 全件 pass
 ```
 
@@ -166,14 +166,14 @@ cd Packages/PhotoPickerCore && swift test
 ### タスク
 
 - [x] **P6-1**: 移動の実行（`_rejected/` 作成、rename、衝突・失敗は飛ばして記録）（`.../Library/ApplyEngine.swift`）
-- [x] **P6-2**: 適用の取り消し（`.photopicker.json` の記録から戻す）（`.../Library/ApplyEngine.swift`）
+- [x] **P6-2**: 適用の取り消し（`.jpphotopicker.json` の記録から戻す）（`.../Library/ApplyEngine.swift`）
 - [x] **P6-3**: 確認ダイアログ（JPG と ARW の枚数）と失敗一覧の表示、適用の取り消しメニュー（`App/Browser/ApplyFlow.swift`）
 - [x] **P6-4**: 単体テスト（一時ディレクトリで移動・衝突・取り消し）
 
 ### 完了確認
 
 ```bash
-cd Packages/PhotoPickerCore && swift test && cd ../.. && xcodebuild -project PhotoPicker.xcodeproj -scheme PhotoPicker build -quiet
+cd Packages/JPPhotoPickerCore && swift test && cd ../.. && xcodebuild -project JPPhotoPicker.xcodeproj -scheme JPPhotoPicker build -quiet
 # 期待: テスト全件 pass、ビルド成功
 ```
 
@@ -195,7 +195,7 @@ cd Packages/PhotoPickerCore && swift test && cd ../.. && xcodebuild -project Pho
 ### 完了確認
 
 ```bash
-cd Packages/PhotoPickerCore && swift test && cd ../.. && xcodegen generate && xcodebuild -project PhotoPicker.xcodeproj -scheme PhotoPicker build -quiet
+cd Packages/JPPhotoPickerCore && swift test && cd ../.. && xcodegen generate && xcodebuild -project JPPhotoPicker.xcodeproj -scheme JPPhotoPicker build -quiet
 # 期待: テスト全件 pass、ビルド成功
 ```
 
@@ -217,13 +217,13 @@ cd Packages/PhotoPickerCore && swift test && cd ../.. && xcodegen generate && xc
 ## ディレクトリ構成
 
 ```
-PhotoPicker/
+JPPhotoPicker/
 ├── project.yml                     # XcodeGen
 ├── App/                            # アプリ本体（SwiftUI）
-│   ├── PhotoPickerApp.swift
+│   ├── JPPhotoPickerApp.swift
 │   ├── Browser/  Imaging/  Viewer/  Settings/
-├── Packages/PhotoPickerCore/       # ロジック（swift test で検証）
-│   ├── Sources/PhotoPickerCore/{Metadata,Geometry,Library,Viewer}/
-│   └── Tests/PhotoPickerCoreTests/
+├── Packages/JPPhotoPickerCore/       # ロジック（swift test で検証）
+│   ├── Sources/JPPhotoPickerCore/{Metadata,Geometry,Library,Viewer}/
+│   └── Tests/JPPhotoPickerCoreTests/
 └── Docs/
 ```

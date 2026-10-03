@@ -1,5 +1,5 @@
 import SwiftUI
-import PhotoPickerCore
+import JPPhotoPickerCore
 
 extension FocusedValues {
     /// メインウインドウがキーのときだけ、そのウインドウの BrowserModel が入る

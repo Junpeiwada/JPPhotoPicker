@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import PhotoPickerCore
+@testable import JPPhotoPickerCore
 
 @Suite("最近開いたフォルダ（RecentFolders）")
 struct RecentFoldersTests {

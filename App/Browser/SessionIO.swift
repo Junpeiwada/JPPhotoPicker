@@ -1,7 +1,7 @@
 import Foundation
 import ImageIO
 import Synchronization
-import PhotoPickerCore
+import JPPhotoPickerCore
 
 /// 保存を直列化する。すべての書き込みが同じロックの下で行われ、世代番号が古い内容は書かない
 /// （デバウンス中の保存と、終了時・適用直後の即時保存が前後しても、古い内容が後から勝たない）。

@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import PhotoPickerCore
+@testable import JPPhotoPickerCore
 
 @Suite("全体表示用の画像の大きさ（ScreenResolution）")
 struct ScreenResolutionTests {

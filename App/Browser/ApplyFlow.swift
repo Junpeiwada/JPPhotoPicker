@@ -1,5 +1,5 @@
 import SwiftUI
-import PhotoPickerCore
+import JPPhotoPickerCore
 
 /// 適用・取り消しの確認ダイアログ、通知、失敗一覧シート、実行中の進捗表示をまとめて付ける。
 private struct ApplyFlowModifier: ViewModifier {

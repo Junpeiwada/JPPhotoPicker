@@ -1,5 +1,5 @@
 import SwiftUI
-import PhotoPickerCore
+import JPPhotoPickerCore
 
 /// プレビューの左上に重ねる撮影情報（I で切り替え）。パネルは敷かず、文字だけを出す。
 /// 写真と混ざらないよう、白い文字に黒い外枠（4 方向の影）と軽いぼかしの影を付ける。

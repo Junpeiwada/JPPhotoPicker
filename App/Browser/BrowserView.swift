@@ -1,6 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
-import PhotoPickerCore
+import JPPhotoPickerCore
 
 /// メインウインドウの中身。フォルダ未選択なら案内、選択後はプレビュー＋フィルムストリップ。
 /// 写真閲覧向けに、ウインドウ全体をダークで統一する。
@@ -32,7 +32,7 @@ struct BrowserView: View {
                         .allowsHitTesting(false)
                 }
             }
-            .navigationTitle(model.folderName ?? "PhotoPicker")
+            .navigationTitle(model.folderName ?? "JPPhotoPicker")
             .navigationSubtitle(model.progressText)
             .toolbar {
                 ToolbarItem(placement: .navigation) {
