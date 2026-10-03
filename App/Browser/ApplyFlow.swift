@@ -15,20 +15,24 @@ private struct ApplyFlowModifier: ViewModifier {
                         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
             }
-            // 適用の確認
+            // 適用の確認（採用がひとつも無いときは、全コマが移ることをはっきり出す）
             .confirmationDialog(
-                "不採用の写真を移動しますか？",
+                model.pickedCount == 0 ? "すべての写真を移動しますか？" : "採用していない写真を移動しますか？",
                 isPresented: Binding(
                     get: { model.pendingApplyPlan != nil },
                     set: { if !$0 { model.pendingApplyPlan = nil } }),
                 titleVisibility: .visible,
                 presenting: model.pendingApplyPlan
             ) { plan in
-                Button("移動する", role: .destructive) { model.confirmApply(plan) }
+                Button(model.pickedCount == 0 ? "すべて移動する" : "移動する", role: .destructive) { model.confirmApply(plan) }
                 Button("キャンセル", role: .cancel) {}
             } message: { plan in
-                let b = model.breakdown(of: plan)
-                Text("不採用のコマと、連写で採用しなかったコマを \(ApplyEngine.rejectedFolderName) に移します。\n不採用 \(b.rejected) コマ・連写で未採用 \(b.unpicked) コマ（JPG \(plan.jpgCount) 枚・ARW \(plan.arwCount) 枚）。「適用を取り消す」で元に戻せます。")
+                let files = "（JPG \(plan.jpgCount) 枚・ARW \(plan.arwCount) 枚）。「適用を取り消す」で元に戻せます。"
+                if model.pickedCount == 0 {
+                    Text("採用の印が付いたコマがひとつもないため、フォルダ内の \(model.entries.count) コマすべてを \(ApplyEngine.rejectedFolderName) に移します。\n" + files)
+                } else {
+                    Text("採用の印が無いコマを \(ApplyEngine.rejectedFolderName) に移します。\n\(plan.candidates.count) / \(model.entries.count) コマ" + files)
+                }
             }
             // 取り消しの確認
             .confirmationDialog(

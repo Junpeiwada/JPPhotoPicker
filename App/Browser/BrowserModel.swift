@@ -140,14 +140,14 @@ final class BrowserModel {
         !isBusy && !isLoading && !isLoadingMetadata && !isSessionReadOnly && session.applied.last != nil
     }
     /// 適用できるか（読み取り専用のセッションでは適用しない。記録を保存できず、取り消せなくなるため。
-    /// メタデータの読み込み中も、連写グループが決まらず移動対象を決められないので適用しない）
+    /// メタデータの読み込み中も、並び順と連写グループが決まらないので適用しない）
     var canApply: Bool { hasEntries && !isBusy && !isSessionReadOnly && !isLoadingMetadata }
     /// 適用が使えない理由（ヘルプ表示用）。使えるなら nil
     var applyDisabledReason: String? {
         if isSessionReadOnly {
             return "このフォルダは読み取り専用で開いているため、適用できません（記録を保存できず、取り消せなくなります）"
         }
-        if isLoadingMetadata { return "写真の情報を読み込み中のため、まだ適用できません（連写グループが決まっていません）" }
+        if isLoadingMetadata { return "写真の情報を読み込み中のため、まだ適用できません（並び順と連写グループが決まっていません）" }
         return nil
     }
     var folderName: String? { folderURL?.lastPathComponent }
@@ -923,15 +923,6 @@ final class BrowserModel {
     }
 
     // MARK: 適用（一括移動）と取り消し
-
-    /// 移動予定の内訳。不採用にしたコマと、連写で採用しなかった（不採用ではない）コマ
-    func breakdown(of plan: ApplyPlan) -> (rejected: Int, unpicked: Int) {
-        var rejected = 0, unpicked = 0
-        for c in plan.candidates {
-            if book.decision(for: c.id) == .rejected { rejected += 1 } else { unpicked += 1 }
-        }
-        return (rejected, unpicked)
-    }
 
     /// 「適用」。移動予定を作り、確認ダイアログを出す（0 件ならその旨を知らせる）。
     func requestApply() {

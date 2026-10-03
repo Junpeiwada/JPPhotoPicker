@@ -261,7 +261,7 @@ struct BurstGrouperTests {
 
 @Suite("Decision")
 struct DecisionTests {
-    @Test("1コマだけの連写グループは単写として扱う（未判定なら残す、不採用なら移す）")
+    @Test("1コマだけの連写グループは単写として扱う（移動のルールは同じで、採用以外を移す）")
     func singleFrameBurstIsSingle() {
         let items = [
             item("A_0010", burst: 1, time: 1),
@@ -272,21 +272,16 @@ struct DecisionTests {
         #expect(groups.map(\.isBurst) == [true, false])
         #expect(groups[1].burstStartNumber == nil)
         let c1 = DecisionRules.moveCandidates(groups: groups, decisions: [:])
-        #expect(c1.map(\.id) == ["A_0010.JPG", "A_0011.JPG"])   // 1 コマ連写の A_0020 は残る
-        let c2 = DecisionRules.moveCandidates(groups: groups, decisions: ["A_0020.JPG": .rejected])
-        #expect(c2.map(\.id) == ["A_0010.JPG", "A_0011.JPG", "A_0020.JPG"])
+        #expect(c1.map(\.id) == ["A_0010.JPG", "A_0011.JPG", "A_0020.JPG"])   // 未判定は単写でも移す
         let c3 = DecisionRules.moveCandidates(groups: groups, decisions: ["A_0020.JPG": .picked])
         #expect(!c3.contains { $0.id == "A_0020.JPG" })
     }
 
-    @Test("shouldMove: 連写は採用以外、単写は不採用だけ")
+    @Test("shouldMove: 採用以外を移す")
     func shouldMove() {
-        #expect(DecisionRules.shouldMove(decision: .undecided, inBurstGroup: true))
-        #expect(!DecisionRules.shouldMove(decision: .picked, inBurstGroup: true))
-        #expect(DecisionRules.shouldMove(decision: .rejected, inBurstGroup: true))
-        #expect(!DecisionRules.shouldMove(decision: .undecided, inBurstGroup: false))
-        #expect(!DecisionRules.shouldMove(decision: .picked, inBurstGroup: false))
-        #expect(DecisionRules.shouldMove(decision: .rejected, inBurstGroup: false))
+        #expect(DecisionRules.shouldMove(decision: .undecided))
+        #expect(!DecisionRules.shouldMove(decision: .picked))
+        #expect(DecisionRules.shouldMove(decision: .rejected))
     }
 
     @Test("移動対象にペアの ARW が含まれ、ARW だけも対象になる")
@@ -306,12 +301,13 @@ struct DecisionTests {
             "R_0200.ARW": .rejected,
         ]
         let c = DecisionRules.moveCandidates(groups: groups, decisions: decisions)
-        #expect(c.map(\.id) == ["A_0001.JPG", "A_0003.JPG", "S_0100.JPG", "R_0200.ARW"])
+        #expect(c.map(\.id) == ["A_0001.JPG", "A_0003.JPG", "S_0100.JPG", "S_0101.JPG", "R_0200.ARW"])
         #expect(c[0].urls.map(\.lastPathComponent) == ["A_0001.JPG", "A_0001.ARW"])
         #expect(c[1].urls.map(\.lastPathComponent) == ["A_0003.JPG"])
         #expect(c[2].urls.map(\.lastPathComponent) == ["S_0100.JPG", "S_0100.ARW"])
-        #expect(c[3].urls.map(\.lastPathComponent) == ["R_0200.ARW"])
-        #expect(c[3].jpgURL == nil && c[3].arwURL != nil)
+        #expect(c[3].urls.map(\.lastPathComponent) == ["S_0101.JPG"])   // 単写の未判定も移す
+        #expect(c[4].urls.map(\.lastPathComponent) == ["R_0200.ARW"])
+        #expect(c[4].jpgURL == nil && c[4].arwURL != nil)
     }
 
     @Test("連写グループで1枚も採用しなければ全コマを移す")

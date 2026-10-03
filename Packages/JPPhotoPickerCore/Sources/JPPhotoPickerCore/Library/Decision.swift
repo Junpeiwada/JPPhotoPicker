@@ -18,9 +18,9 @@ public struct MoveCandidate: Sendable, Hashable, Identifiable {
 }
 
 public enum DecisionRules {
-    /// 移すかどうか。連写グループのコマは「採用以外」、単写は「不採用」だけ移す。
-    public static func shouldMove(decision: Decision, inBurstGroup: Bool) -> Bool {
-        inBurstGroup ? decision != .picked : decision == .rejected
+    /// 移すかどうか。連写・単写とも「採用以外」を移す。
+    public static func shouldMove(decision: Decision) -> Bool {
+        decision != .picked
     }
 
     /// 適用時に移す対象を、グループの並び順で返す。`decisions` に無いコマは未判定。
@@ -29,7 +29,7 @@ public enum DecisionRules {
         for g in groups {
             for item in g.items {
                 let d = decisions[item.id] ?? .undecided
-                if shouldMove(decision: d, inBurstGroup: g.isBurst) {
+                if shouldMove(decision: d) {
                     out.append(MoveCandidate(id: item.id, urls: item.allURLs,
                                              jpgURL: item.jpgURL, arwURL: item.arwURL))
                 }

@@ -49,7 +49,7 @@ struct BrowserView: View {
                     }
                     .disabled(!model.canApply || model.isModalPresented)
                     .help(model.applyDisabledReason
-                          ?? "不採用のコマと、連写で採用しなかったコマを _rejected に移します")
+                          ?? "採用の印が無いコマを _rejected に移します")
                 }
                 // 右端: 情報パネルの切り替え
                 ToolbarItem(placement: .primaryAction) {

@@ -16,11 +16,14 @@ private func has(_ dir: URL, _ rel: String) -> Bool {
     FileManager.default.fileExists(atPath: dir.appendingPathComponent(rel).path)
 }
 
-/// フォルダを走査して、指定コマ ID を不採用にした状態の予定を作る
+/// フォルダを走査して、指定コマ ID を不採用、それ以外を採用にした状態の予定を作る
 private func plan(_ dir: URL, rejecting ids: [String]) throws -> ApplyPlan {
     let items = try FolderScanner.scan(folder: dir)
     let groups = BurstGrouper.group(items)
-    return ApplyEngine.plan(groups: groups, decisions: Dictionary(uniqueKeysWithValues: ids.map { ($0, Decision.rejected) }))
+    let rejected = Set(ids)
+    return ApplyEngine.plan(groups: groups, decisions: Dictionary(uniqueKeysWithValues: items.map {
+        ($0.id, rejected.contains($0.id) ? Decision.rejected : .picked)
+    }))
 }
 
 @Suite("ApplyEngine")
