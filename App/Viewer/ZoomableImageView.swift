@@ -17,6 +17,8 @@ struct ZoomableImageView: NSViewRepresentable {
     let image: PipelineImage?
     let imageRect: CGRect
     let isZoomed: Bool
+    /// 上端のタイトルバー（ツールバー）の高さ。この範囲のクリック・ドラッグはウインドウの操作に回す
+    let titlebarHeight: CGFloat
     let onClick: (CGPoint) -> Void
     let onPan: (CGSize) -> Void
     let onPinch: (PinchPhase, Double, CGPoint) -> Void
@@ -30,6 +32,7 @@ struct ZoomableImageView: NSViewRepresentable {
         view.onPan = onPan
         view.onPinch = onPinch
         view.isZoomed = isZoomed
+        view.titlebarHeight = titlebarHeight
         view.update(image: image, imageRect: imageRect)
     }
 }
@@ -39,6 +42,7 @@ final class ZoomCanvasView: NSView {
     var onPan: ((CGSize) -> Void)?
     var onPinch: ((PinchPhase, Double, CGPoint) -> Void)?
     var isZoomed = false
+    var titlebarHeight: CGFloat = 0
 
     private let imageLayer = CALayer()
     private var currentImage: PipelineImage?
@@ -106,7 +110,14 @@ final class ZoomCanvasView: NSView {
     // MARK: 入力
 
     override func mouseDown(with event: NSEvent) {
-        mouseDownPoint = topLeftPoint(convert(event.locationInWindow, from: nil))
+        let point = topLeftPoint(convert(event.locationInWindow, from: nil))
+        // 写真はタイトルバーの下まで描いているので、その範囲ではタイトルバーと同じ動きをさせる
+        if point.y < titlebarHeight {
+            mouseDownPoint = nil
+            titlebarMouseDown(with: event)
+            return
+        }
+        mouseDownPoint = point
         isDragging = false
         downWasKey = window?.isKeyWindow ?? false
     }
@@ -125,6 +136,39 @@ final class ZoomCanvasView: NSView {
         // ダブルクリック（2 回目以降）と、前面化のクリックは無視する
         guard !isDragging, downWasKey, event.clickCount <= 1, let p = mouseDownPoint else { return }
         onClick?(p)
+    }
+
+    /// タイトルバーのダブルクリックはシステム設定（デスクトップと Dock）に従い、それ以外はウインドウを動かす
+    private func titlebarMouseDown(with event: NSEvent) {
+        guard let window else { return }
+        guard event.clickCount == 2 else {
+            window.performDrag(with: event)
+            return
+        }
+        switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") {
+        case "Minimize": window.performMiniaturize(nil)
+        case "None": break
+        case "Maximize": window.performZoom(nil)
+        default: Self.toggleFill(window)   // 未設定（既定）と「フィル」
+        }
+    }
+
+    /// フィルする前のウインドウの位置と大きさ（もう一度ダブルクリックしたときに戻す）
+    private static var framesBeforeFill: [ObjectIdentifier: NSRect] = [:]
+
+    /// 画面いっぱい（Dock とメニューバーを除く）と元の大きさを切り替える。
+    /// フィルした後に手で動かしていたら、もう一度フィルする
+    private static func toggleFill(_ window: NSWindow) {
+        guard let visible = window.screen?.visibleFrame else { return }
+        let key = ObjectIdentifier(window)
+        let isFilled = abs(window.frame.minX - visible.minX) < 2 && abs(window.frame.minY - visible.minY) < 2
+            && abs(window.frame.width - visible.width) < 2 && abs(window.frame.height - visible.height) < 2
+        if isFilled, let saved = framesBeforeFill.removeValue(forKey: key) {
+            window.setFrame(saved, display: true, animate: true)
+        } else if !isFilled {
+            framesBeforeFill[key] = window.frame
+            window.setFrame(visible, display: true, animate: true)
+        }
     }
 
     override func scrollWheel(with event: NSEvent) {

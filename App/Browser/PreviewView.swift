@@ -28,6 +28,7 @@ struct PreviewView: View {
                         image: model.displayImage,
                         imageRect: model.geometry.imageRect,
                         isZoomed: !model.zoom.isFit,
+                        titlebarHeight: topInset,
                         onClick: { model.click(atViewPoint: $0) },
                         onPan: { model.pan(contentDelta: $0) },
                         onPinch: { phase, magnification, point in
