@@ -1,6 +1,6 @@
 import Foundation
 
-/// 判定（未判定 / 採用）。採用していないコマは不採用として扱う
+/// 判定（採用していない（不採用） / 採用）。`undecided` は採用していない（不採用）コマを表す
 public enum Decision: String, Sendable, Codable, Hashable, CaseIterable {
     case undecided
     case picked
@@ -10,10 +10,11 @@ public enum Decision: String, Sendable, Codable, Hashable, CaseIterable {
 public struct MoveCandidate: Sendable, Hashable, Identifiable {
     /// コマ ID（`PhotoItem.id`）
     public let id: String
-    /// 移すファイル（JPG、ARW の順。ペアの ARW も含む）
-    public let urls: [URL]
     public let jpgURL: URL?
     public let arwURL: URL?
+
+    /// 移すファイル（JPG、ARW の順。ペアの ARW も含む）
+    var urls: [URL] { [jpgURL, arwURL].compactMap { $0 } }
 }
 
 public enum DecisionRules {
@@ -22,15 +23,14 @@ public enum DecisionRules {
         decision != .picked
     }
 
-    /// 適用時に移す対象を、グループの並び順で返す。`decisions` に無いコマは未判定。
+    /// 適用時に移す対象を、グループの並び順で返す。`decisions` に無いコマは採用していない（不採用）。
     public static func moveCandidates(groups: [PhotoGroup], decisions: [String: Decision]) -> [MoveCandidate] {
         var out: [MoveCandidate] = []
         for g in groups {
             for item in g.items {
                 let d = decisions[item.id] ?? .undecided
                 if shouldMove(decision: d) {
-                    out.append(MoveCandidate(id: item.id, urls: item.allURLs,
-                                             jpgURL: item.jpgURL, arwURL: item.arwURL))
+                    out.append(MoveCandidate(id: item.id, jpgURL: item.jpgURL, arwURL: item.arwURL))
                 }
             }
         }
@@ -53,7 +53,7 @@ public struct DecisionChange: Sendable, Hashable {
 
 /// 判定の一覧と取り消し履歴をまとめたもの（UI の状態として使う）
 public struct DecisionBook: Sendable, Equatable {
-    /// 未判定のコマは持たない
+    /// 採用していない（不採用）コマは持たない
     public private(set) var decisions: [String: Decision]
     public private(set) var history = DecisionHistory()
 

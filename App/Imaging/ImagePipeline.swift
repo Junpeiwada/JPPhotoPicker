@@ -273,18 +273,23 @@ final class ImagePipeline: @unchecked Sendable {
         cont?.resume(returning: nil)
     }
 
+    /// デコードを終えたジョブの結果をキャッシュに入れ、待っている呼び出しを再開する。
+    /// 取り消し済みのジョブ（`removeAll` の後に届いた結果など）はキャッシュに入れない。
+    /// 判定とキャッシュへの追加はロックの下で行う（`removeAll` がジョブを取り消してからキャッシュを空にするので、
+    /// その間に古いフォルダの画像が入り込まない）。
     fileprivate func finish(_ job: DecodeJob, decoded: PipelineImage?) {
-        if let decoded {
-            cache(job.kind).setObject(decoded, forKey: Self.cacheKey(job.kind, job.item) as NSString, cost: decoded.cost)
-        }
-        let waiters: [CheckedContinuation<PipelineImage?, Never>] = state.withLock { s in
+        let (waiters, result): ([CheckedContinuation<PipelineImage?, Never>], PipelineImage?) = state.withLock { s in
             if s.jobs[job.key] === job { s.jobs[job.key] = nil }
+            let result = job.isCancelled ? nil : decoded
+            if let result {
+                cache(job.kind).setObject(result, forKey: Self.cacheKey(job.kind, job.item) as NSString, cost: result.cost)
+            }
             let list = Array(job.waiters)
             job.waiters = [:]
             for (id, _) in list { s.waiterKeys[id] = nil }
-            return list.map(\.value)
+            return (list.map(\.value), result)
         }
-        for w in waiters { w.resume(returning: decoded) }
+        for w in waiters { w.resume(returning: result) }
     }
 
     /// 先読み（結果は待たない）。`items` は近い順。
@@ -358,9 +363,16 @@ final class ImagePipeline: @unchecked Sendable {
     }
 
     fileprivate static func decode(_ kind: ImageKind, item: PhotoItem) -> CGImage? {
-        // フォルダを開いた直後はメタデータが未読み取り。埋め込み画像の位置と向きを知るため、その場で読む
+        // フォルダを開いた直後はメタデータが未読み取り。サムネイル・大プレビューは埋め込み画像の位置と向き
+        // （サムネイルは黒帯を切る縦横も）を知るため、その場で読む。全体表示用・本体は ImageIO / CIRAWFilter が
+        // 向きを当て、メタデータを使わないので読まない（ファイルの先頭を読み直さない）
         var item = item
-        if item.metadata == nil { item.metadata = PhotoMetadataLoader.defaultReader(item) }
+        switch kind {
+        case .thumbnail, .preview:
+            if item.metadata == nil { item.metadata = PhotoMetadataLoader.defaultReader(item) }
+        case .screen, .body:
+            break
+        }
         switch ImageSource(item: item) {
         case .jpeg(let url):
             switch kind {

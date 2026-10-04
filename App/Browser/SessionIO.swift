@@ -57,13 +57,31 @@ enum SessionIO {
         }
 
         do {
-            out.session = try store.load()
+            let loaded = try store.loadWithReport()
+            out.session = loaded.session
+            var warnings: [String] = []
             if out.session.version > SessionData.currentVersion {
                 out.readOnly = true
-                out.sessionWarning = SessionStoreError
+                warnings.append(SessionStoreError
                     .unsupportedVersion(found: out.session.version, supported: SessionData.currentVersion)
-                    .localizedDescription + "このフォルダは読み取り専用で開きます（判定は保存されません）。"
+                    .localizedDescription + "このフォルダは読み取り専用で開きます（判定は保存されません）。")
             }
+            // 壊れていて読めなかった適用の記録は捨てて開く（原本は退避済み）。その適用は取り消せない
+            if loaded.backupFailed {
+                // 退避できないまま保存すると、読めなかった記録が永久に失われる。判定は読めた分で開き、保存しない
+                out.readOnly = true
+                warnings.append("\(SessionStore.fileName) の適用の記録のうち \(loaded.droppedAppliedCount) 件が壊れていて読めませんでした。"
+                    + "元のファイルの退避もできなかったため、記録を守るためにこのフォルダでは判定を保存しません（読み取り専用で開きます）。"
+                    + "この \(loaded.droppedAppliedCount) 件の適用は「適用を取り消す」で戻せません。"
+                    + "必要なら \(ApplyEngine.rejectedFolderName) フォルダから手で戻してください。")
+            } else if loaded.droppedAppliedCount > 0 {
+                let backupText = loaded.backup.map { "元のファイルを \($0.lastPathComponent) に退避しました。" } ?? ""
+                warnings.append("\(SessionStore.fileName) の適用の記録のうち \(loaded.droppedAppliedCount) 件が壊れていて読めませんでした。"
+                    + backupText
+                    + "この \(loaded.droppedAppliedCount) 件の適用は「適用を取り消す」で戻せません（取り消せない適用の記録が \(loaded.droppedAppliedCount) 件あります）。"
+                    + "必要なら \(ApplyEngine.rejectedFolderName) フォルダから手で戻してください。")
+            }
+            if !warnings.isEmpty { out.sessionWarning = warnings.joined(separator: "\n\n") }
         } catch let e as SessionStoreError {
             out.session = SessionData()
             switch e {

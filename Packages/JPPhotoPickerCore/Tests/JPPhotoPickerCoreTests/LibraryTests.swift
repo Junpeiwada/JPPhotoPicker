@@ -272,7 +272,7 @@ struct DecisionTests {
         #expect(groups.map(\.isBurst) == [true, false])
         #expect(groups[1].burstStartNumber == nil)
         let c1 = DecisionRules.moveCandidates(groups: groups, decisions: [:])
-        #expect(c1.map(\.id) == ["A_0010.JPG", "A_0011.JPG", "A_0020.JPG"])   // 未判定は単写でも移す
+        #expect(c1.map(\.id) == ["A_0010.JPG", "A_0011.JPG", "A_0020.JPG"])   // 採用していない（不採用）コマは単写でも移す
         let c3 = DecisionRules.moveCandidates(groups: groups, decisions: ["A_0020.JPG": .picked])
         #expect(!c3.contains { $0.id == "A_0020.JPG" })
     }
@@ -302,7 +302,7 @@ struct DecisionTests {
         #expect(c[0].urls.map(\.lastPathComponent) == ["A_0001.JPG", "A_0001.ARW"])
         #expect(c[1].urls.map(\.lastPathComponent) == ["A_0003.JPG"])
         #expect(c[2].urls.map(\.lastPathComponent) == ["S_0100.JPG", "S_0100.ARW"])
-        #expect(c[3].urls.map(\.lastPathComponent) == ["S_0101.JPG"])   // 単写の未判定も移す
+        #expect(c[3].urls.map(\.lastPathComponent) == ["S_0101.JPG"])   // 単写の採用していない（不採用）コマも移す
         #expect(c[4].urls.map(\.lastPathComponent) == ["R_0200.ARW"])
         #expect(c[4].jpgURL == nil && c[4].arwURL != nil)
     }
@@ -479,5 +479,128 @@ struct SessionStoreTests {
         #expect(s.decisions == ["a.JPG": .picked])
         #expect(s.applied.count == 1)
         #expect(s.applied[0].moves.count == 1)
+    }
+
+    // MARK: - 壊れた適用の記録
+
+    /// 1 件目が正常、2 件目が壊れた適用の記録を持つ JSON
+    private let jsonWithBrokenRecord = """
+    {"version":1,"decisions":{"a.JPG":"picked"},
+     "applied":[
+       {"date":"2026-09-29T00:00:00Z","moves":[{"from":"b.JPG","to":"_rejected/b.JPG"}]},
+       {"date":"broken","moves":[]}
+     ]}
+    """
+
+    @Test("壊れた適用の記録を捨てたら、原本を .broken- に退避し、件数と退避先を返す")
+    func droppedAppliedIsBackedUp() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent(".jpphotopicker.json")
+        try Data(jsonWithBrokenRecord.utf8).write(to: url)
+        let store = SessionStore(folder: dir)
+
+        let r = try store.loadWithReport()
+        #expect(r.droppedAppliedCount == 1)
+        #expect(r.session.applied.count == 1 && r.session.decisions == ["a.JPG": .picked])
+        let b = try #require(r.backup)
+        #expect(b.lastPathComponent.hasPrefix(".jpphotopicker.json.broken-"))
+        #expect(try Data(contentsOf: b) == Data(jsonWithBrokenRecord.utf8))
+        // 保存して記録が消えても、退避ファイルには残る
+        try store.save(r.session)
+        #expect(try Data(contentsOf: b) == Data(jsonWithBrokenRecord.utf8))
+        // 保存後はもう捨てるものが無い
+        let again = try store.loadWithReport()
+        #expect(again.droppedAppliedCount == 0 && again.backup == nil)
+    }
+
+    @Test("load() でも壊れた記録を捨てたら原本を退避する。同じ内容なら退避ファイルは増えない")
+    func droppedAppliedBackupViaLoad() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Data(jsonWithBrokenRecord.utf8).write(to: dir.appendingPathComponent(".jpphotopicker.json"))
+        let store = SessionStore(folder: dir)
+        #expect(try store.load().applied.count == 1)
+        _ = try store.load()
+        let names = try FileManager.default.contentsOfDirectory(atPath: dir.path).filter { $0.contains(".broken-") }
+        #expect(names.count == 1)
+    }
+
+    @Test("壊れた記録の退避に失敗しても読めた判定は返し、backupFailed を立てる。load() は corrupted を投げる")
+    func droppedAppliedBackupFails() throws {
+        let dir = try makeTempDir()
+        let url = dir.appendingPathComponent(".jpphotopicker.json")
+        try Data(jsonWithBrokenRecord.utf8).write(to: url)
+        // 書き込めないフォルダにして、退避ファイルを作れないようにする
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: dir.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.path)
+            try? FileManager.default.removeItem(at: dir)
+        }
+        let store = SessionStore(folder: dir)
+
+        let r = try store.loadWithReport()
+        #expect(r.backupFailed && r.backup == nil && r.droppedAppliedCount == 1)
+        #expect(r.session.decisions == ["a.JPG": .picked] && r.session.applied.count == 1)
+        #expect(throws: SessionStoreError.corrupted(backup: nil, detail: "適用の記録 1 件が壊れています")) {
+            try store.load()
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path) == [".jpphotopicker.json"])
+        #expect(try Data(contentsOf: url) == Data(jsonWithBrokenRecord.utf8))
+    }
+
+    @Test("壊れた記録が無ければ退避しない。新しい版のファイルは記録を捨てても退避しない")
+    func noBackupWhenNothingDropped() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent(".jpphotopicker.json")
+        let store = SessionStore(folder: dir)
+        try store.save(SessionData(applied: [ApplyRecord(date: Date(timeIntervalSince1970: 1_790_000_000), moves: [])]))
+        let r = try store.loadWithReport()
+        #expect(r.droppedAppliedCount == 0 && r.backup == nil && r.session.applied.count == 1)
+
+        try Data(jsonWithBrokenRecord.replacingOccurrences(of: #""version":1"#, with: #""version":99"#).utf8).write(to: url)
+        let future = try store.loadWithReport()
+        #expect(future.session.version == 99 && future.droppedAppliedCount == 1 && future.backup == nil)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path) == [".jpphotopicker.json"])
+    }
+
+    // MARK: - 再開位置・version の正規化
+
+    @Test("lastViewedID: 往復で保たれ、nil なら書き出さない。旧形式（項目なし）は nil で読む")
+    func lastViewedID() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent(".jpphotopicker.json")
+        let store = SessionStore(folder: dir)
+
+        let data = SessionData(decisions: ["a.JPG": .picked], lastViewedID: "A1_0002.JPG")
+        try store.save(data)
+        #expect(try String(contentsOf: url, encoding: .utf8).contains(#""lastViewedID" : "A1_0002.JPG""#))
+        #expect(try store.load() == data)
+
+        try store.save(SessionData(decisions: ["a.JPG": .picked]))
+        #expect(try !String(contentsOf: url, encoding: .utf8).contains("lastViewedID"))
+        #expect(try store.load().lastViewedID == nil)
+
+        // 旧形式（この項目が無い）
+        try Data(#"{"version":1,"decisions":{"a.JPG":"picked"},"applied":[]}"#.utf8).write(to: url)
+        let old = try store.load()
+        #expect(old.lastViewedID == nil && old.decisions == ["a.JPG": .picked] && old.version == 1)
+        // 型が違っても全体は失敗させず nil
+        try Data(#"{"version":1,"decisions":{},"applied":[],"lastViewedID":5}"#.utf8).write(to: url)
+        #expect(try store.load().lastViewedID == nil)
+    }
+
+    @Test("save は古い version を currentVersion にそろえて書く（新しい版の拒否はそのまま）")
+    func saveNormalizesVersion() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = SessionStore(folder: dir)
+        try store.save(SessionData(version: 0, decisions: ["a.JPG": .picked]))
+        #expect(try store.load().version == SessionData.currentVersion)
+        #expect(throws: SessionStoreError.unsupportedVersion(found: 2, supported: 1)) {
+            try store.save(SessionData(version: 2))
+        }
     }
 }

@@ -6,7 +6,7 @@ extension FocusedValues {
     @Entry var browserModel: BrowserModel?
 }
 
-/// メニューバーに並べるキー操作。単キー（P / X / U / Z / F など）もメニュー項目の
+/// メニューバーに並べるキー操作。単キー（P / Z / F など）もメニュー項目の
 /// キーボードショートカットとして受け、メニューから発見できるようにする。
 ///
 /// モデルは `@FocusedValue` で受けるので、メインウインドウ以外（設定・シート・パネル）がキーのときは
@@ -17,10 +17,10 @@ extension FocusedValues {
 struct BrowserCommands: Commands {
     @FocusedValue(\.browserModel) private var model
 
-    /// 写真の操作を受け付けるか
+    /// 写真の操作を受け付けるか（処理中・ダイアログ表示中の判定はモデルの `isInteractive` を使う）
     private var canOperate: Bool {
         guard let model else { return false }
-        return model.hasEntries && !model.isBusy && !model.isModalPresented
+        return model.hasEntries && model.isInteractive
     }
 
     var body: some Commands {
@@ -28,7 +28,7 @@ struct BrowserCommands: Commands {
         CommandGroup(replacing: .newItem) {
             Button("フォルダを開く…") { model?.chooseFolder() }
                 .keyboardShortcut("o", modifiers: .command)
-                .disabled(model == nil || model?.isBusy == true || model?.isModalPresented == true)
+                .disabled(model?.isInteractive != true)
         }
 
         // 編集: ⌘Z / ⇧⌘Z（判定の取り消し / やり直し）
@@ -42,11 +42,8 @@ struct BrowserCommands: Commands {
         }
 
         CommandMenu("選別") {
-            Button("採用") { model?.toggleDecision(.picked) }
+            Button("採用") { model?.togglePick() }
                 .keyboardShortcut("p", modifiers: [])
-                .disabled(!canOperate)
-            Button("判定を解除") { model?.clearDecision() }
-                .keyboardShortcut("u", modifiers: [])
                 .disabled(!canOperate)
 
             Divider()

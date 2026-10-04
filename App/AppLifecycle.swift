@@ -69,7 +69,10 @@ private final class WindowCloseProxy: NSObject, NSWindowDelegate {
             alert.runModal()
             return false
         }
-        return original?.windowShouldClose?(sender) ?? true
+        let shouldClose = original?.windowShouldClose?(sender) ?? true
+        // 閉じる前に、保留中の判定と再開位置を書く
+        if shouldClose { model.flushSave() }
+        return shouldClose
     }
 
     nonisolated override func responds(to aSelector: Selector!) -> Bool {

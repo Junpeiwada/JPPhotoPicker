@@ -25,7 +25,7 @@ public struct ZoomState: Sendable, Equatable {
 
     public init(mode: Mode = .fit, center: NormalizedPoint = NormalizedPoint(x: 0.5, y: 0.5)) {
         self.mode = mode
-        self.center = mode == .fit ? NormalizedPoint(x: 0.5, y: 0.5) : center
+        self.center = mode == .fit ? NormalizedPoint(x: 0.5, y: 0.5) : Self.clamp01(center)
     }
 
     public var isFit: Bool { mode == .fit }
@@ -87,6 +87,8 @@ public struct ZoomState: Sendable, Equatable {
     ///
     /// 補正式: `k = 旧倍率 / 新倍率`、`center = anchor + (center − anchor) × k`
     /// （全体表示から始めるときは 旧倍率 = fitScale、center = (0.5, 0.5)）。その後、端をクランプする。
+    /// 全体表示では画像の中心がビューの中心より `fitTopInset / 2` だけ下にある（`ViewportGeometry.imageRect`）ので、
+    /// 全体表示から始めるときは、そのずれを新しい倍率での正規化座標に直して y から引く。
     public mutating func pinch(to scale: Double, anchor: NormalizedPoint, viewport: ZoomViewport) {
         let fitScale = viewport.fitScale
         guard scale.isFinite, scale > 0 else { return }
@@ -100,8 +102,14 @@ public struct ZoomState: Sendable, Equatable {
         let oldCenter = isFit ? NormalizedPoint(x: 0.5, y: 0.5) : center
         let a = Self.clamp01(anchor)
         let k = old / s
+        // 全体表示の画像中心とビュー中心のずれ（ポイント）を、新しい倍率での画像の高さで割る
+        var dy = 0.0
+        if isFit, viewport.isValid {
+            let newHeight = Double(viewport.imagePixelSize.height) * s / viewport.backingScale
+            dy = Double(viewport.fitTopInset) / 2 / newHeight
+        }
         center = Self.clamp01(NormalizedPoint(x: a.x + (oldCenter.x - a.x) * k,
-                                              y: a.y + (oldCenter.y - a.y) * k))
+                                              y: a.y + (oldCenter.y - a.y) * k - dy))
         mode = .scale(s)
         clampCenter(viewport: viewport)
     }

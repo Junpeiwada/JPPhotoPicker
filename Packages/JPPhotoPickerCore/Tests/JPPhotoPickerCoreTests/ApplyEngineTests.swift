@@ -16,7 +16,7 @@ private func has(_ dir: URL, _ rel: String) -> Bool {
     FileManager.default.fileExists(atPath: dir.appendingPathComponent(rel).path)
 }
 
-/// フォルダを走査して、指定コマ ID を未判定（不採用）、それ以外を採用にした状態の予定を作る
+/// フォルダを走査して、指定コマ ID を採用していない（不採用）、それ以外を採用にした状態の予定を作る
 private func plan(_ dir: URL, rejecting ids: [String]) throws -> ApplyPlan {
     let items = try FolderScanner.scan(folder: dir)
     let groups = BurstGrouper.group(items)
@@ -499,16 +499,65 @@ struct ApplyEngineTests {
         try FileManager.default.createDirectory(at: dir.appendingPathComponent("sub"), withIntermediateDirectories: true)
         touch(dir, ["sub/deep.JPG"])
         let p = ApplyPlan(candidates: [
-            MoveCandidate(id: "evil.JPG", urls: [other.appendingPathComponent("evil.JPG")],
-                          jpgURL: other.appendingPathComponent("evil.JPG"), arwURL: nil),
-            MoveCandidate(id: "deep.JPG", urls: [dir.appendingPathComponent("sub/deep.JPG")],
-                          jpgURL: dir.appendingPathComponent("sub/deep.JPG"), arwURL: nil),
-            MoveCandidate(id: "A1_0001.JPG", urls: [dir.appendingPathComponent("A1_0001.JPG")],
-                          jpgURL: dir.appendingPathComponent("A1_0001.JPG"), arwURL: nil),
+            MoveCandidate(id: "evil.JPG", jpgURL: other.appendingPathComponent("evil.JPG"), arwURL: nil),
+            MoveCandidate(id: "deep.JPG", jpgURL: dir.appendingPathComponent("sub/deep.JPG"), arwURL: nil),
+            MoveCandidate(id: "A1_0001.JPG", jpgURL: dir.appendingPathComponent("A1_0001.JPG"), arwURL: nil),
         ])
         let r = ApplyEngine(folder: dir).apply(p)
         #expect(r.failures.map(\.path) == ["evil.JPG", "deep.JPG"])
         #expect(r.record?.moves.map(\.from) == ["A1_0001.JPG"])
         #expect(has(other, "evil.JPG") && has(dir, "sub/deep.JPG"))
+    }
+
+    @Test("undo: 2 件中 1 件の移動が失敗したら、戻せた分だけ数え、失敗した分を記録に残す")
+    func undoPartialMoverFailure() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        touch(dir, ["A1_0001.JPG", "A1_0002.JPG"])
+        var engine = ApplyEngine(folder: dir)
+        let rec = try #require(engine.apply(try plan(dir, rejecting: ["A1_0001.JPG", "A1_0002.JPG"])).record)
+        engine.clearJournal()
+        #expect(rec.moves.count == 2)
+
+        // 取り消しも差し替えた mover を通る: A1_0002 の戻しだけ失敗させる
+        struct Boom: Error, LocalizedError { var errorDescription: String? { "戻せない" } }
+        engine.mover = { from, to in
+            if from.lastPathComponent == "A1_0002.JPG" { throw Boom() }
+            try FileManager.default.moveItem(at: from, to: to)
+        }
+        let u = engine.undo(rec)
+        #expect(u.restoredCount == 1)
+        #expect(u.failures == [ApplyFailure(path: "_rejected/A1_0002.JPG", reason: "戻せない")])
+        #expect(u.remainingRecord?.id == rec.id)
+        #expect(u.remainingRecord?.moves.map(\.from) == ["A1_0002.JPG"])
+        #expect(has(dir, "A1_0001.JPG") && !has(dir, "_rejected/A1_0001.JPG"))
+        #expect(has(dir, "_rejected/A1_0002.JPG") && !has(dir, "A1_0002.JPG"))   // _rejected は残る
+    }
+}
+
+// MARK: - 退避先の命名・存在確認
+
+@Suite("FileSafety")
+struct FileSafetyTests {
+    @Test("退避先は <名前>.broken-yyyyMMdd-HHmmss、既にあれば -2、-3 と連番。壊れたリンクも「ある」とみなす")
+    func brokenDestination() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let date = Date(timeIntervalSince1970: 1_790_000_000)
+        let first = FileSafety.brokenDestination(for: ".x.json", in: dir, date: date)
+        let stamp = first.lastPathComponent.dropFirst(".x.json.broken-".count)
+        #expect(first.lastPathComponent.hasPrefix(".x.json.broken-"))
+        #expect(stamp.count == 15 && stamp.dropFirst(8).first == "-")   // yyyyMMdd-HHmmss
+        #expect(first.deletingLastPathComponent().standardizedFileURL == dir.standardizedFileURL)
+
+        // 1 つ目の名前に壊れたシンボリックリンクを置く → 存在扱いで -2
+        try FileManager.default.createSymbolicLink(atPath: first.path, withDestinationPath: dir.appendingPathComponent("nowhere").path)
+        #expect(!FileManager.default.fileExists(atPath: first.path))   // fileExists はリンク先を見るので false
+        #expect(FileSafety.exists(first))
+        let second = FileSafety.brokenDestination(for: ".x.json", in: dir, date: date)
+        #expect(second.lastPathComponent == first.lastPathComponent + "-2")
+        try Data([1]).write(to: second)
+        let third = FileSafety.brokenDestination(for: ".x.json", in: dir, date: date)
+        #expect(third.lastPathComponent == first.lastPathComponent + "-3")
     }
 }

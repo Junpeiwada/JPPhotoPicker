@@ -158,7 +158,7 @@ struct PreviewView: View {
 
     private var zoomControls: some View {
         VStack(alignment: .trailing, spacing: 8) {
-            decisionSegment
+            pickButton
             HStack(spacing: 8) {
                 if !model.zoom.isFit {
                     badge { Text(zoomLabel).monospacedDigit() }
@@ -178,35 +178,27 @@ struct PreviewView: View {
     }
 
     /// 採用の切り替え。採用中に押すと外す。次のコマへは進まない。
-    private var decisionSegment: some View {
-        HStack(spacing: 2) {
-            segmentButton(.picked, title: "採用", systemImage: "checkmark.circle.fill", tint: .green, key: "P",
-                          help: "採用にします。もう一度押すと採用を外します（P）")
-        }
-        .padding(3)
-        .glassEffect(.regular, in: .capsule)
-        .disabled(model.currentItem == nil)
-    }
-
-    private func segmentButton(_ decision: Decision, title: String, systemImage: String,
-                               tint: Color, key: String, help: String) -> some View {
-        let selected = model.currentDecision == decision
+    private var pickButton: some View {
+        let selected = model.currentDecision == .picked
         return Button {
-            model.toggleDecision(decision)
+            model.togglePick()
         } label: {
             HStack(spacing: 6) {
-                Label(title, systemImage: systemImage)
-                keyCap(key, selected: selected)
+                Label("採用", systemImage: "checkmark.circle.fill")
+                keyCap("P", selected: selected)
             }
             .foregroundStyle(selected ? Color.white : Color.primary)
             .padding(.horizontal, 12)
             .padding(.vertical, 5)
-            .background(selected ? tint.opacity(0.85) : .clear, in: .capsule)
+            .background(selected ? Color.green.opacity(0.85) : .clear, in: .capsule)
             .contentShape(.capsule)
         }
         .buttonStyle(.plain)
-        .help(help)
+        .help("採用にします。もう一度押すと採用を外します（P）")
         .accessibilityAddTraits(selected ? .isSelected : [])
+        .padding(3)
+        .glassEffect(.regular, in: .capsule)
+        .disabled(model.currentItem == nil)
     }
 
     /// ショートカットキーの表示（キーキャップ風の小さな枠）
@@ -232,13 +224,6 @@ struct PreviewView: View {
     }
 
     private var accessibilityText: String {
-        guard let e = model.currentEntry else { return "写真" }
-        var text = e.item.id
-        switch model.currentDecision {
-        case .picked: text += "、採用"
-        case .undecided: break
-        }
-        if e.isBurst { text += "、連写 \(e.groupCount) 枚中 \(e.positionInGroup + 1) 枚目" }
-        return text
+        model.currentEntry?.spokenDescription(decision: model.currentDecision) ?? "写真"
     }
 }

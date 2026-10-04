@@ -42,8 +42,12 @@ GUI を目視せずに動作を確かめる仕組み。
 
 - `Metadata/` — exiftool に依存しない自前パーサー。JPEG の先頭（APP1 / APP2 MPF）だけを読み、Exif・Orientation・IFD1 サムネイル位置・MPF プレビュー位置と Sony MakerNote（`ReleaseMode` / `SequenceNumber` / `FocusLocation` / `FocusFrameSize`）を取り出す。ARW は TIFF 構造から同じ情報を読む。`FocusFrameSize` / `FocusLocation` は型宣言が undefined のことがあるため u16 として生読みしている
 - `Geometry/FocusGeometry` — フォーカス位置を 0〜1 の比率にし、Orientation に合わせて変換する（座標はセンサー向きで記録されている）
-- `Library/` — `FolderScanner`（JPG/ARW のペア付け、大文字小文字無視）→ `BurstGrouper`（連写グループ化）→ `Decision`/`DecisionHistory`（判定と取り消し履歴、`DecisionBook`）→ `SessionStore`（`.jpphotopicker.json`、version 付き。新しい版のファイルは読み取り専用扱い）→ `ApplyEngine`（`_rejected/` への一括移動と取り消し）
+- `Library/` — `FolderScanner`（JPG/ARW のペア付け、大文字小文字無視）→ `BurstGrouper`（連写グループ化）→ `Decision`/`DecisionHistory`（判定と取り消し履歴、`DecisionBook`）→ `SessionStore`（`.jpphotopicker.json`。判定・適用の記録・最後に見ていたコマ `lastViewedID` を持つ。version 付き。新しい版のファイルは読み取り専用扱い）→ `ApplyEngine`（`_rejected/` への一括移動と取り消し）
 - `Viewer/` — `ZoomState`（全体 / 100% / 200% / ピンチ倍率、コマ移動時の位置保持ルール）と `ViewportGeometry`
+- `Metadata/PhotoInfo` — 情報パネルに出す撮影情報。ImageIO のプロパティ辞書から主要項目（機種・レンズ・露出など）を整形し、自前パーサーで読んだ Sony MakerNote の値を足す
+- `Library/RecentFolders` — 最近開いたフォルダの履歴（新しい順、同じフォルダは1件にまとめ、上限10件）。UserDefaults に JSON で保存する
+- `Viewer/DisplaySelection` — 手元にある画像（本体 / 全体表示用 / 大プレビュー）から表示する画像と質（最高画質 / 読み込み中 / 作れなかった）を決める。「読み込み中」マークの出し分けに使う
+- `Viewer/ScreenResolution` — 全体表示用の画像の画素数（表示領域の長辺を物理ピクセルにし 256 単位で切り上げ）と、キャッシュ上限に収まる先読み枚数を計算する
 
 ### App
 
@@ -56,7 +60,7 @@ GUI を目視せずに動作を確かめる仕組み。
 
 - 連写グループは「ファイル番号 − SequenceNumber + 1」（連写の先頭番号）で区切る。撮影時刻の差では区切らない
 - 1コマだけの連写グループは単写として扱う（表示とグループ移動のみ。移動のルールは連写も単写も同じ）
-- 適用時は採用以外（未判定・不採用）を連写・単写とも移動する。採用がひとつも無いときは確認で全コマが移ることを警告する
+- 判定は「採用」とそれ以外（不採用）の2つだけ。適用時は採用していないコマを連写・単写とも移動する。採用がひとつも無いときは確認で全コマが移ることを警告する
 - JPG と ARW のペアは必ずそろって移す。片方が失敗したら戻して、そのペアは失敗一覧に出す
 
 ## テストデータ

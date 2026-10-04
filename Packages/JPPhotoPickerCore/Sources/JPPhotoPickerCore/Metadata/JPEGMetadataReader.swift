@@ -62,7 +62,7 @@ public enum JPEGMetadataReader {
     }
 
     /// メモリ上のバイト列（ファイル先頭部分）を解析する。
-    public static func parse(prefix: Data, isCompleteFile: Bool = false) throws -> PhotoMetadata {
+    static func parse(prefix: Data, isCompleteFile: Bool = false) throws -> PhotoMetadata {
         switch try parse(bytes: [UInt8](prefix), isCompleteFile: isCompleteFile) {
         case .done(let m): return m
         case .needMore: throw MetadataError.truncated

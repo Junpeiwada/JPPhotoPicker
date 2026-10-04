@@ -12,6 +12,18 @@ struct BrowserEntry: Identifiable, Hashable {
     let positionInGroup: Int
     let groupCount: Int
     let isBurst: Bool
+
+    /// 読み上げ用の説明（ファイル名、ARW だけ、連写の位置、採用）。フィルムストリップとプレビューで共用する
+    func spokenDescription(decision: Decision) -> String {
+        var text = item.id
+        if item.kind == .arwOnly { text += "、ARW だけ" }
+        if isBurst { text += "、連写 \(groupCount) 枚中 \(positionInGroup + 1) 枚目" }
+        switch decision {
+        case .picked: text += "、採用"
+        case .undecided: break
+        }
+        return text
+    }
 }
 
 /// 選別画面の状態。判定・コマ送り・ズーム・画像表示・保存をまとめる。
@@ -82,11 +94,19 @@ final class BrowserModel {
     /// 取り消しの確認ダイアログに出す記録
     var pendingUndoRecord: ApplyRecord?
     /// 短い通知（アラート）。nil でなければ表示中
-    var notice: String?
+    var notice: String? {
+        didSet { if notice == nil, oldValue != nil { presentDeferredModal() } }
+    }
     /// フォルダ選択（fileImporter）の表示中
     var isImporterPresented = false
     /// 失敗一覧のシート
-    var failureReport: FailureReport?
+    var failureReport: FailureReport? {
+        didSet { if failureReport == nil, oldValue != nil { presentDeferredModal() } }
+    }
+    /// 失敗一覧・通知を同時に出さないため、もう一方が閉じるまで待たせているもの（閉じた後で失敗一覧 → 通知の順に出す）
+    private var deferredFailureReport: FailureReport?
+    private var deferredNotice: String?
+    private var deferredModalTask: Task<Void, Never>?
     /// 適用・取り消しの実行中はメッセージが入る（操作を無効化する）
     private(set) var busyMessage: String?
 
@@ -97,6 +117,9 @@ final class BrowserModel {
     private var saveFailureNotified = false
     private var saveGeneration = 0
     private var hasPendingSave = false
+    /// 保存ファイルに書かれている再開位置（読み込んだ値・最後に書けた値）。
+    /// 今のコマがこれと違えば、判定を変えていなくても flush のときに書く
+    private var savedLastViewedID: String?
     /// 適用・取り消しの完了を待つ呼び出し（終了時の確認から使う）
     private var idleCallbacks: [() -> Void] = []
 
@@ -110,6 +133,10 @@ final class BrowserModel {
     /// ウインドウの大きさを変えている間は、全体表示用の画像を作り直すのを少し待つ
     private var screenResizeTask: Task<Void, Never>?
     private var openTask: Task<Void, Never>?
+    /// ドロップ・履歴から開く前の、フォルダの有無の確認
+    private var openCheckTask: Task<Void, Never>?
+    /// 履歴から開こうとして、フォルダの有無を確認している間はそのパス（行に進行中の表示を出す）
+    private(set) var checkingRecentPath: String?
     private var metadataTask: Task<Void, Never>?
     private var currentMetadataTask: Task<Void, Never>?
 
@@ -176,19 +203,19 @@ final class BrowserModel {
     var canUndo: Bool { !isBusy && book.history.canUndo }
     var canRedo: Bool { !isBusy && book.history.canRedo }
 
-    /// 確認ダイアログ・通知・失敗一覧・フォルダ選択のいずれかが出ている間は、判定・移動・メニューを受け付けない
+    /// 確認ダイアログ・通知・失敗一覧・フォルダ選択のいずれかが出ている間（出す順番を待っているものを含む）は、
+    /// 判定・移動・メニューを受け付けない
     var isModalPresented: Bool {
         pendingApplyPlan != nil || pendingUndoRecord != nil || failureReport != nil || notice != nil || isImporterPresented
+            || deferredFailureReport != nil || deferredNotice != nil
     }
-    /// 判定・移動などの操作を受け付けるか
-    private var isInteractive: Bool { !isBusy && !isModalPresented }
+    /// 判定・移動などの操作を受け付けるか（メニューの有効・無効もこれを使う）
+    var isInteractive: Bool { !isBusy && !isModalPresented }
 
     /// 表示向きの画像の大きさ（画素）。メタデータ（画像サイズ＋Orientation）を優先し、
     /// 無いときだけ読み込み済みの画像から推定する。デコード済みかどうかに結果が左右されない。
     func pixelSize(of item: PhotoItem) -> CGSize {
-        if let m = item.metadata, let w = m.imageWidth, let h = m.imageHeight, w > 0, h > 0 {
-            return (5...8).contains(m.orientation) ? CGSize(width: h, height: w) : CGSize(width: w, height: h)
-        }
+        if let size = item.metadata?.displayPixelSize { return size }
         if let b = pipeline.cached(.body, for: item) { return CGSize(width: b.width, height: b.height) }
         if let p = pipeline.cached(.preview, for: item) { return CGSize(width: p.width, height: p.height) }
         return .zero
@@ -260,34 +287,56 @@ final class BrowserModel {
         isImporterPresented = true
     }
 
-    /// ドロップされた URL を開く（フォルダならそのフォルダ、ファイルなら親フォルダ）
+    /// ドロップされた URL を開く（フォルダならそのフォルダ、ファイルなら親フォルダ）。
+    /// 有無の確認はバックグラウンドで行い（応答しないネットワークドライブで画面を止めない）、無ければ何もしない
     @discardableResult
     func open(dropped urls: [URL]) -> Bool {
         guard isInteractive, let url = urls.first else { return false }
-        var isDir: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { return false }
-        open(folder: isDir.boolValue ? url : url.deletingLastPathComponent())
+        openCheckTask?.cancel()
+        checkingRecentPath = nil
+        openCheckTask = Task { [weak self] in
+            let isDirectory = await Self.directoryStatus(url)
+            guard !Task.isCancelled, let self, self.isInteractive, let isDirectory else { return }
+            self.open(folder: isDirectory ? url : url.deletingLastPathComponent())
+        }
         return true
     }
 
-    /// 履歴のフォルダを開く。見つからなければ（外付けディスクが外れているなど）知らせるだけで、履歴には残す
+    /// 履歴のフォルダを開く。見つからなければ（外付けディスクが外れているなど）知らせるだけで、履歴には残す。
+    /// 有無の確認はバックグラウンドで行う
     func open(recent: RecentFolder) {
         guard isInteractive else { return }
-        guard Self.folderExists(recent.url) else {
-            notice = "「\(recent.name)」が見つかりません。\n\(recent.path)"
-            return
+        openCheckTask?.cancel()
+        checkingRecentPath = recent.path
+        openCheckTask = Task { [weak self] in
+            // 取り消されたときも進行中の表示を消す（別の確認が始まっていれば、その表示は残す）
+            defer { if self?.checkingRecentPath == recent.path { self?.checkingRecentPath = nil } }
+            let exists = await Self.directoryStatus(recent.url) == true
+            guard !Task.isCancelled, let self, self.isInteractive else { return }
+            if exists {
+                self.open(folder: recent.url)
+            } else {
+                self.post(notice: "「\(recent.name)」が見つかりません。\n\(recent.path)")
+            }
         }
-        open(folder: recent.url)
     }
+
 
     func removeRecent(_ recent: RecentFolder) {
         recentFolders.remove(recent.url)
         saveRecent()
     }
 
-    nonisolated static func folderExists(_ url: URL) -> Bool {
-        var isDir: ObjCBool = false
-        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
+    /// `url` がフォルダなら true、ファイルなら false、無ければ nil。
+    /// 応答しないネットワークドライブで止まりうる同期の確認なので、協調プールではなく GCD のスレッドで行う
+    nonisolated static func directoryStatus(_ url: URL) async -> Bool? {
+        await withCheckedContinuation { (cont: CheckedContinuation<Bool?, Never>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                var isDir: ObjCBool = false
+                let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
+                cont.resume(returning: exists ? isDir.boolValue : nil)
+            }
+        }
     }
 
     private func recordRecent(_ folder: URL) {
@@ -300,13 +349,16 @@ final class BrowserModel {
         UserDefaults.standard.set(data, forKey: PreferenceKey.recentFolders)
     }
 
-    /// フォルダを開く。`id` があれば、そのコマを選んだ状態にする（無ければ先頭のコマ）。
+    /// フォルダを開く。`id` があれば、そのコマを選んだ状態にする（無ければ前回最後に見ていたコマ、それも無ければ先頭のコマ）。
     /// `carrying` があれば、読み直した後でディスクの内容の代わりにそのセッション（判定・適用の記録）を使う。
     /// 保存に失敗したまま読み直しても、メモリ上の判定や取り消しの結果を失わないため。
     func open(folder: URL, selecting id: String? = nil, carrying: SessionData? = nil) {
         flushSave()
         // 保存できていない内容を引き継ぐときは、読み直した後で保存し直す
         let carryUnsaved = carrying != nil && hasPendingSave
+        openCheckTask?.cancel()
+        checkingRecentPath = nil
+        savedLastViewedID = nil
         pipeline.removeAll()
         infoCache = [:]
         openTask?.cancel()
@@ -322,7 +374,6 @@ final class BrowserModel {
         saveTask = nil
         hasPendingSave = false
         folderURL = folder
-        recordRecent(folder)
         errorMessage = nil
         isLoading = true
         groups = []
@@ -349,8 +400,14 @@ final class BrowserModel {
         openTask = Task { [weak self] in
             let outcome = await SessionIO.load(folder: folder, store: store)
             guard !Task.isCancelled, let outcome, let self, self.folderURL == folder else { return }
+            // 走査できたフォルダだけを最近開いたフォルダに入れる
+            if outcome.scanError == nil { self.recordRecent(folder) }
             self.finishOpening(outcome, folder: folder, selecting: id, carrying: carrying, carryUnsaved: carryUnsaved)
-            if outcome.scanError == nil, !outcome.items.isEmpty { self.startLoadingMetadata(outcome.items, folder: folder) }
+            if outcome.scanError == nil, !outcome.items.isEmpty {
+                self.startLoadingMetadata(outcome.items, folder: folder)
+                // 再開したコマのメタデータを先に読む（finishOpening の時点では読み込み中になっていないので、ここで読む）
+                self.loadCurrentMetadataIfNeeded()
+            }
         }
     }
 
@@ -426,6 +483,8 @@ final class BrowserModel {
     private func finishOpening(_ outcome: FolderLoadOutcome, folder: URL, selecting id: String?,
                                carrying: SessionData?, carryUnsaved: Bool) {
         session = carrying ?? outcome.session
+        // 引き継いだセッションは直前に保存を試みている。書けていなければ hasPendingSave で書き直す
+        savedLastViewedID = session.lastViewedID
         isSessionReadOnly = outcome.readOnly
         // メタデータはまだ無いので、すべて単写としてファイル名順に並ぶ（読み終えてから組み直す）
         installGroups(BurstGrouper.group(outcome.items))
@@ -435,6 +494,11 @@ final class BrowserModel {
         recount()
         isLoading = false
         errorMessage = outcome.scanError
+
+        // 続きから再開: 指定のコマ、無ければ前回最後に見ていたコマ、それも無ければ（フォルダから無くなっていれば）先頭へ。
+        // 復旧の保存（persist）が再開位置を書くので、その前に決める
+        currentIndex = id.flatMap { indexByID[$0] } ?? session.lastViewedID.flatMap { indexByID[$0] } ?? 0
+        zoom = ZoomState()
 
         var messages: [String] = []
         if let warning = outcome.sessionWarning { messages.append(warning) }
@@ -465,22 +529,43 @@ final class BrowserModel {
         }
         // 保存できていなかった内容を引き継いだときは、読み直した後で保存し直す
         if carryUnsaved, !isSessionReadOnly { scheduleSave() }
+        // ファイルに再開位置が無ければ、今のコマ（先頭）を保存済みとみなす。開いただけで 1 コマも送らずに
+        // 別のフォルダへ移ったときに、位置だけのためにファイルを作らない
+        if savedLastViewedID == nil { savedLastViewedID = currentItem?.id }
 
-        // 続きから再開: 指定のコマ、無ければ先頭へ
-        currentIndex = id.flatMap { indexByID[$0] } ?? 0
-        zoom = ZoomState()
         refreshCurrent()
         if !messages.isEmpty { post(notice: messages.joined(separator: "\n\n")) }
     }
 
     /// 通知を出す。すでに出ていれば続けて表示する。
+    /// 失敗一覧が出ている（出す順番を待っている）間は、それを閉じるまで待たせる（モーダルを同時に 2 つ出さない）
     private func post(notice text: String) {
+        if failureReport != nil || deferredFailureReport != nil || deferredNotice != nil {
+            deferredNotice = deferredNotice.map { $0 + "\n\n" + text } ?? text
+            return
+        }
         if let current = notice { notice = current + "\n\n" + text } else { notice = text }
+    }
+
+    /// 待たせていた失敗一覧・通知を、今出ているものの閉じる処理が終わってから出す（失敗一覧を先に出す）
+    private func presentDeferredModal() {
+        guard deferredFailureReport != nil || deferredNotice != nil else { return }
+        deferredModalTask?.cancel()
+        deferredModalTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, let self, self.notice == nil, self.failureReport == nil else { return }
+            if let report = self.deferredFailureReport {
+                self.deferredFailureReport = nil
+                self.failureReport = report
+            } else if let text = self.deferredNotice {
+                self.deferredNotice = nil
+                self.notice = text
+            }
+        }
     }
 
     // MARK: コマ送り
 
-    func select(index: Int) { move(to: index) }
     func select(id: String) { if let i = indexByID[id] { move(to: i) } }
     func next() { move(to: currentIndex + 1) }
     func previous() { move(to: currentIndex - 1) }
@@ -509,6 +594,8 @@ final class BrowserModel {
         refreshDisplay()
         prefetch()
         loadCurrentMetadataIfNeeded()
+        // 再開位置を覚える。コマ送りでは書かず、判定の保存と、flush（フォルダの切り替え・終了・ウインドウを閉じる）のときに一緒に書く
+        session.lastViewedID = new.id
     }
 
     // MARK: 情報パネル
@@ -529,17 +616,10 @@ final class BrowserModel {
 
     // MARK: 判定
 
-    /// 今のコマの判定を切り替える（進まない）。同じ判定なら未判定（不採用）に戻す。
-    func toggleDecision(_ decision: Decision) {
+    /// 今のコマの採用を切り替える（進まない）。採用中なら外して、採用していない（不採用）に戻す。
+    func togglePick() {
         guard isInteractive, let item = currentItem else { return }
-        book.set(currentDecision == decision ? .undecided : decision, for: item.id)
-        changed()
-    }
-
-    /// 判定の解除（進まない）
-    func clearDecision() {
-        guard isInteractive, let item = currentItem else { return }
-        book.set(.undecided, for: item.id)
+        book.set(currentDecision == .picked ? .undecided : .picked, for: item.id)
         changed()
     }
 
@@ -572,6 +652,8 @@ final class BrowserModel {
         var decisions = s.decisions.filter { indexByID[$0.key] == nil }
         for (k, v) in book.decisions { decisions[k] = v }
         s.decisions = decisions
+        // 再開位置は今のコマ。コマが無いとき（すべて移したなど）は覚えていた値のまま
+        s.lastViewedID = currentItem?.id ?? s.lastViewedID
         return s
     }
 
@@ -581,47 +663,64 @@ final class BrowserModel {
         saveGeneration += 1
         let generation = saveGeneration
         let data = currentSession()
+        let viewed = data.lastViewedID
         hasPendingSave = true
         saveTask?.cancel()
         saveTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
             let error = await SessionIO.write(saver, data, generation: generation)
-            // 保存中にフォルダが切り替わっていたら、結果を今のフォルダに反映しない
-            guard let self, self.saver === saver else { return }
+            // 保存中にフォルダが切り替わっていたら、結果を今のフォルダに反映しない。
+            // 後から新しい保存（遅延・即時）を始めていたら、その結果が状態を決めるので、古い世代の結果は捨てる
+            guard let self, self.saver === saver, generation == self.saveGeneration else { return }
             if let error {
                 self.handleSaveFailure(error)
                 // 失敗したら、終了時の flushSave でもう一度試せるよう保留に戻す
                 if !self.isSessionReadOnly { self.hasPendingSave = true }
             } else {
-                if generation == self.saveGeneration { self.hasPendingSave = false }
+                self.hasPendingSave = false
+                self.savedLastViewedID = viewed
                 self.handleSaveSuccess()
             }
         }
     }
 
-    /// 保留中の保存をすぐ書き込む（フォルダを切り替えるとき・終了時）
+    /// 再開位置だけが保存ファイルの値から変わっている（判定は変えていない）。読み取り専用のときは書かないので false
+    private var hasUnsavedPosition: Bool {
+        guard saver != nil, !isSessionReadOnly, let id = currentItem?.id else { return false }
+        return id != savedLastViewedID
+    }
+
+    /// 保留中の保存（判定・再開位置）をすぐ書き込む（フォルダを切り替えるとき・終了時・ウインドウを閉じるとき）。
+    /// 失敗したときの扱いは判定の保存と同じ（最初の 1 回だけ通知する）
     func flushSave() {
-        guard hasPendingSave else { return }
+        guard hasPendingSave || hasUnsavedPosition else { return }
+        // 位置だけの保存は、失敗しても知らせない（判定は失っていないので、次の flush でまた試す）
+        let positionOnly = !hasPendingSave
         saveTask?.cancel()
         saveTask = nil
         hasPendingSave = false
-        persist()
+        persist(silentOnFailure: positionOnly)
     }
 
     /// 今の状態をすぐ書き込む（同期）。成功したら true。読み取り専用のときは書かず false。
+    /// `silentOnFailure` のときは、失敗しても通知・保存失敗の表示・保留を立てない（位置だけの保存用）
     @discardableResult
-    private func persist() -> Bool {
+    private func persist(silentOnFailure: Bool = false) -> Bool {
         guard let saver, !isSessionReadOnly else { return false }
         saveTask?.cancel()
         saveTask = nil
         hasPendingSave = false
         saveGeneration += 1
+        let data = currentSession()
         do {
-            try saver.write(currentSession(), generation: saveGeneration)
+            try saver.write(data, generation: saveGeneration)
+            savedLastViewedID = data.lastViewedID
+            session.lastViewedID = data.lastViewedID
             handleSaveSuccess()
             return true
         } catch {
+            if silentOnFailure { return false }
             handleSaveFailure(error)
             // 書けなかった内容は、終了時・フォルダ切り替え時の flushSave でもう一度試す
             hasPendingSave = !isSessionReadOnly
@@ -933,10 +1032,10 @@ final class BrowserModel {
         let fresh = ApplyEngine.plan(groups: groups, decisions: book.decisions)
         guard fresh == plan else {
             pendingApplyPlan = nil
-            // ダイアログの閉じる処理が終わってから出し直す
+            // ダイアログの閉じる処理が終わってから出し直す（その間にフォルダが変わった・別のダイアログが出たときは出さない）
             Task { [weak self] in
                 try? await Task.sleep(for: .milliseconds(300))
-                guard let self, !self.isBusy else { return }
+                guard let self, self.folderURL == folder, self.isInteractive else { return }
                 if fresh.isEmpty { self.notice = "移動するファイルはありません" } else { self.pendingApplyPlan = fresh }
             }
             return
@@ -953,8 +1052,8 @@ final class BrowserModel {
         defer { endBusy() }
         guard folderURL == folder else { return }
 
-        // 移動したコマの判定は保存データに残す（取り消して戻したときに判定を復元するため）。
-        // 画面の book からは外し、取り消し履歴（DecisionHistory）は空にする。
+        // 一覧を作り直す前に、今の判定を保存データに書き戻す（移すのは採用していないコマなので、移したコマの判定は無い）。
+        // 画面の book は残ったコマで作り直し、取り消し履歴（DecisionHistory）は空になる。
         session.decisions = currentSession().decisions
         if let record = result.record { session.appendApplied(record) }
 
@@ -977,12 +1076,13 @@ final class BrowserModel {
             } else {
                 removeItems(ids: removedIDs)
             }
-            // 記録を保存できたら、適用のジャーナルを片付ける（保存できなければ残して、次回の起動で復旧する）
-            if persist() { ApplyEngine(folder: folder).clearJournal() }
         }
+        // 失敗一覧を先に出す（保存失敗などの通知は、失敗一覧を閉じた後で出る）
         showFailures(result.failures,
                      title: "一部のファイルを移動できませんでした",
                      done: result.movedCount, doneLabel: "移動しました")
+        // 記録を保存できたら、適用のジャーナルを片付ける（保存できなければ残して、次回の起動で復旧する）
+        if result.record != nil, persist() { ApplyEngine(folder: folder).clearJournal() }
         // 保存に失敗していても、メモリ上の判定と適用の記録を引き継いで読み直す
         if reopen { open(folder: folder, selecting: reopenID, carrying: session) }
     }
@@ -1064,6 +1164,10 @@ final class BrowserModel {
         guard folderURL == folder else { return }
         session.decisions = currentSession().decisions
         let matched = session.finishUndo(of: record, result: result)
+        // 失敗一覧を先に出す（保存失敗・読み直しの通知は、失敗一覧を閉じた後で出る）
+        showFailures(result.failures,
+                     title: "一部のファイルを戻せませんでした",
+                     done: result.restoredCount, doneLabel: "戻しました")
         persist()
         // 戻したコマを含めて読み直す（判定はメモリ上のセッションから復元される）。
         // 保存に失敗しても、取り消した記録がディスクの古い内容で復活しないよう、メモリ上のセッションを引き継ぐ
@@ -1071,17 +1175,26 @@ final class BrowserModel {
         if !matched {
             post(notice: "適用の記録が見つからなかったため、フォルダを読み直して状態を合わせました。")
         }
-        showFailures(result.failures,
-                     title: "一部のファイルを戻せませんでした",
-                     done: result.restoredCount, doneLabel: "戻しました")
     }
 
+    /// 失敗一覧を出す。通知・失敗一覧が出ている（出す順番を待っている）ときは、それを閉じてから出す（待っている失敗一覧とはまとめる）
     private func showFailures(_ failures: [ApplyFailure], title: String, done: Int, doneLabel: String) {
         guard !failures.isEmpty else { return }
-        failureReport = FailureReport(
+        let report = FailureReport(
             title: title,
             summary: "\(done) 件を\(doneLabel)。\(failures.count) 件は処理できませんでした。",
             failures: failures)
+        if let waiting = deferredFailureReport {
+            // 待っている分と 1 つにまとめる（先の分を失わない）
+            let title = waiting.title == report.title ? report.title : "一部のファイルを処理できませんでした"
+            deferredFailureReport = FailureReport(title: title, summary: waiting.summary + "\n" + report.summary,
+                                                  failures: waiting.failures + report.failures)
+        } else if notice != nil || deferredNotice != nil || failureReport != nil {
+            // 通知・表示中の失敗一覧を閉じた後に出す
+            deferredFailureReport = report
+        } else {
+            failureReport = report
+        }
     }
 }
 

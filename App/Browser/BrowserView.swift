@@ -39,7 +39,7 @@ struct BrowserView: View {
                     Button { model.chooseFolder() } label: {
                         Label("フォルダを開く", systemImage: "folder")
                     }
-                    .disabled(model.isBusy || model.isModalPresented)
+                    .disabled(!model.isInteractive)
                     .help("フォルダを開く（⌘O）")
                 }
                 ToolbarItem(placement: .primaryAction) {

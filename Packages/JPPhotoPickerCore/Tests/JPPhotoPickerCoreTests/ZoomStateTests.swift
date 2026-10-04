@@ -369,4 +369,29 @@ struct ZoomStateTests {
         let f = viewport.viewFraction(scale: 1.0)
         #expect(abs(f.height - 800.0 / 2000.0) < 1e-9)
     }
+
+    @Test("ピンチ: 上端の空き（topInset）があっても、全体表示から始めたとき指の下の画素が動かない")
+    func pinchFromFitWithTopInset() {
+        let img = CGSize(width: 6000, height: 4000)
+        let view = CGSize(width: 1000, height: 800)
+        // 全体表示の領域は 1000×700、画像中心はビュー中心より 50pt 下
+        let g0 = ViewportGeometry(viewSize: view, imagePixelSize: img, backingScale: 2, zoom: ZoomState(), topInset: 100)
+        for finger in [CGPoint(x: 500, y: 450), CGPoint(x: 620, y: 380), CGPoint(x: 400, y: 520)] {
+            let anchor = g0.normalizedPoint(forViewPoint: finger)
+            var z = ZoomState()
+            z.pinch(to: 0.8, anchor: anchor, viewport: g0.viewport)
+            #expect(z.scale == 0.8)
+            // 0.8 では表示 2400×1600pt なので、この指の位置では端のクランプがかからない
+            let g1 = ViewportGeometry(viewSize: view, imagePixelSize: img, backingScale: 2, zoom: z, topInset: 100)
+            let p = g1.viewPoint(forNormalized: anchor)
+            #expect(abs(p.x - finger.x) < 1e-6 && abs(p.y - finger.y) < 1e-6, "finger \(finger)")
+        }
+    }
+
+    @Test("init: 倍率指定のときも中心を 0〜1 に収める")
+    func initClampsCenter() {
+        let z = ZoomState(mode: .scale(1.0), center: NormalizedPoint(x: -0.5, y: 1.7))
+        #expect(z.center == NormalizedPoint(x: 0, y: 1))
+        #expect(ZoomState(mode: .fit, center: NormalizedPoint(x: 3, y: 3)).center == NormalizedPoint(x: 0.5, y: 0.5))
+    }
 }

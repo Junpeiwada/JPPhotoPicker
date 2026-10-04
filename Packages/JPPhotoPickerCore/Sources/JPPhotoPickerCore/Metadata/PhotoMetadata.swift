@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 /// ファイル内のバイト範囲（先頭からのオフセットと長さ）
 public struct FileRange: Sendable, Equatable, Hashable, Codable {
@@ -95,6 +96,13 @@ public struct PhotoMetadata: Sendable, Equatable, Hashable {
         self.mpfPreview = mpfPreview
         self.imageWidth = imageWidth
         self.imageHeight = imageHeight
+    }
+
+    /// 表示向き（Orientation を当てた後）の画素サイズ。Orientation 5〜8（90° 回転を含む）は縦横を入れ替える。
+    /// 画像サイズが無い・0 以下なら nil
+    public var displayPixelSize: CGSize? {
+        guard let w = imageWidth, let h = imageHeight, w > 0, h > 0 else { return nil }
+        return (5...8).contains(orientation) ? CGSize(width: h, height: w) : CGSize(width: w, height: h)
     }
 
     /// 連写のコマか（ReleaseMode == 2 かつ SequenceNumber >= 1）

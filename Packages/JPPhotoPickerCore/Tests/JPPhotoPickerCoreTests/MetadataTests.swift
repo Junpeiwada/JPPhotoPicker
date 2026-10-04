@@ -83,4 +83,16 @@ struct MetadataTests {
         #expect(abs(d2.timeIntervalSince1970 - (1_790_465_520 + 52_200)) < 0.0005)
         #expect(JPEGMetadataReader.parseDate("garbage", subSec: nil, offset: nil) == nil)
     }
+
+    @Test("表示向きの画素サイズ: Orientation 5〜8 は縦横を入れ替え、サイズが無ければ nil")
+    func displayPixelSize() {
+        for o in 1...8 {
+            let m = PhotoMetadata(orientation: o, imageWidth: 6000, imageHeight: 4000)
+            let expected = (5...8).contains(o) ? CGSize(width: 4000, height: 6000) : CGSize(width: 6000, height: 4000)
+            #expect(m.displayPixelSize == expected, "orientation \(o)")
+        }
+        #expect(PhotoMetadata(orientation: 6, imageWidth: 6000).displayPixelSize == nil)
+        #expect(PhotoMetadata(imageWidth: 0, imageHeight: 4000).displayPixelSize == nil)
+        #expect(PhotoMetadata(imageWidth: 6000, imageHeight: -1).displayPixelSize == nil)
+    }
 }

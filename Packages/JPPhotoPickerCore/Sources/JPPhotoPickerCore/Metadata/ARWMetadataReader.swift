@@ -55,7 +55,7 @@ public enum ARWMetadataReader {
     }
 
     /// メモリ上のバイト列（ファイル先頭部分）を解析する。TIFF として読めなければ nil。
-    public static func parse(prefix: Data) -> PhotoMetadata? {
+    static func parse(prefix: Data) -> PhotoMetadata? {
         parse(bytes: [UInt8](prefix))
     }
 

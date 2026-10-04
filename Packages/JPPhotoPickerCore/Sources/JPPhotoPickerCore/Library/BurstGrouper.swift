@@ -8,7 +8,7 @@ public struct PhotoGroup: Sendable, Identifiable, Hashable {
     /// 連写グループか（単写、および区切った結果 1 コマだけになった連写は false）
     public let isBurst: Bool
     /// 連写の先頭番号（ファイル番号 − SequenceNumber + 1）。取れなければ nil
-    public let burstStartNumber: Int?
+    let burstStartNumber: Int?
 
     public init(id: Int, items: [PhotoItem], isBurst: Bool, burstStartNumber: Int?) {
         self.id = id

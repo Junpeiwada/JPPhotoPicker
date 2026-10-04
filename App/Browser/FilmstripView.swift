@@ -16,10 +16,8 @@ struct FilmstripView: View {
 
     /// コマの幅。本体の縦横比（表示向き）に合わせる。メタデータが無ければ 3:2
     static func cellWidth(for item: PhotoItem) -> CGFloat {
-        var aspect = 1.5
-        if let m = item.metadata, let w = m.imageWidth, let h = m.imageHeight, w > 0, h > 0 {
-            aspect = (5...8).contains(m.orientation) ? Double(h) / Double(w) : Double(w) / Double(h)
-        }
+        var aspect: CGFloat = 1.5
+        if let size = item.metadata?.displayPixelSize { aspect = size.width / size.height }
         return (cellHeight * aspect).rounded()
     }
 
@@ -179,12 +177,5 @@ private struct FilmstripCell: View {
         }
     }
 
-    private var label: String {
-        var base = item.kind == .arwOnly ? item.id + "、ARW だけ" : item.id
-        if entry.isBurst { base += "、連写 \(entry.groupCount) 枚中 \(entry.positionInGroup + 1) 枚目" }
-        return switch decision {
-        case .picked: base + "、採用"
-        case .undecided: base
-        }
-    }
+    private var label: String { entry.spokenDescription(decision: decision) }
 }

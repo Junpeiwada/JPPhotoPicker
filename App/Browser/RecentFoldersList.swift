@@ -39,7 +39,7 @@ struct RecentFoldersList: View {
     @concurrent
     private static func checkExistence(_ urls: [URL]) async -> [String: Bool] {
         var result: [String: Bool] = [:]
-        for url in urls { result[url.path] = BrowserModel.folderExists(url) }
+        for url in urls { result[url.path] = await BrowserModel.directoryStatus(url) == true }
         return result
     }
 }
@@ -70,9 +70,14 @@ private struct RecentFolderRow: View {
                         .truncationMode(.middle)
                 }
                 Spacer(minLength: 12)
-                Text(exists ? folder.openedAt.formatted(.relative(presentation: .named)) : "見つかりません")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if model.checkingRecentPath == folder.path {
+                    // フォルダの有無を確認している間
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text(exists ? folder.openedAt.formatted(.relative(presentation: .named)) : "見つかりません")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)

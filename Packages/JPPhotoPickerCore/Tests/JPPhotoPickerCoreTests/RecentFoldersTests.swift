@@ -73,4 +73,15 @@ struct RecentFoldersTests {
         let data = try JSONEncoder().encode(r)
         #expect(try JSONDecoder().decode(RecentFolders.self, from: data) == r)
     }
+
+    @Test("保存済みの履歴が上限を超えていても、上限までしか読まない")
+    func decodeTruncatesToLimit() throws {
+        let many = (0..<(RecentFolders.limit + 5)).map {
+            RecentFolder(path: "/f\($0)", openedAt: t0.addingTimeInterval(Double(-$0)))
+        }
+        let json = try JSONEncoder().encode(["items": many])
+        let r = try JSONDecoder().decode(RecentFolders.self, from: json)
+        #expect(r.items.count == RecentFolders.limit)
+        #expect(r.items.map(\.path) == many.prefix(RecentFolders.limit).map(\.path))   // 新しい順の先頭を残す
+    }
 }

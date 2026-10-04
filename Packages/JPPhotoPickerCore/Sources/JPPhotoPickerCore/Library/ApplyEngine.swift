@@ -14,7 +14,7 @@ public struct ApplyPlan: Sendable, Equatable {
     /// 移す ARW の枚数（ペアの ARW も含む）
     public var arwCount: Int { candidates.filter { $0.arwURL != nil }.count }
     /// 移すファイルの一覧（JPG、ARW の順にコマごと）
-    public var files: [URL] { candidates.flatMap(\.urls) }
+    var files: [URL] { candidates.flatMap(\.urls) }
     public var isEmpty: Bool { candidates.isEmpty }
 }
 
@@ -36,8 +36,8 @@ public struct ApplyResult: Sendable, Equatable {
     /// 成功した移動の記録。1 件も移せなかったときは nil
     public let record: ApplyRecord?
     public let failures: [ApplyFailure]
-    public let movedJPGCount: Int
-    public let movedARWCount: Int
+    let movedJPGCount: Int
+    let movedARWCount: Int
 
     public var movedCount: Int { record?.moves.count ?? 0 }
 }
@@ -111,7 +111,7 @@ public struct ApplyEngine: Sendable {
     static let journalBatchSize = 32
 
     public let folder: URL
-    /// ファイルの移動（テストで失敗を起こすために差し替える）
+    /// ファイルの移動（テストで失敗を起こすために差し替える）。適用・取り消しの両方で使う
     var mover: @Sendable (URL, URL) throws -> Void = { try FileManager.default.moveItem(at: $0, to: $1) }
 
     public init(folder: URL) {
@@ -324,17 +324,7 @@ public struct ApplyEngine: Sendable {
 
     /// 壊れたジャーナルの退避先（フォルダ直下。既にあれば連番）
     private func brokenJournalDestination() -> URL {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyyMMdd-HHmmss"
-        let stamp = f.string(from: Date())
-        var dest = folder.appendingPathComponent("\(Self.journalFileName).broken-\(stamp)")
-        var n = 2
-        while Self.exists(dest) {
-            dest = folder.appendingPathComponent("\(Self.journalFileName).broken-\(stamp)-\(n)")
-            n += 1
-        }
-        return dest
+        FileSafety.brokenDestination(for: Self.journalFileName, in: folder)
     }
 
     /// ジャーナルを削除する（記録を SessionData に保存した後に呼ぶ）。空になった `_rejected` も片付ける。
@@ -378,7 +368,7 @@ public struct ApplyEngine: Sendable {
                 continue
             }
             do {
-                try fm.moveItem(at: to, to: from)
+                try mover(to, from)
                 restored += 1
             } catch {
                 failures.append(ApplyFailure(path: mv.to, reason: error.localizedDescription))
@@ -405,11 +395,8 @@ public struct ApplyEngine: Sendable {
         try encoder.encode(journal).write(to: journalURL, options: .atomic)
     }
 
-    /// 壊れたリンクも「ある」とみなす（上書きを避けるため）
-    private static func exists(_ url: URL) -> Bool {
-        (try? url.checkResourceIsReachable()) == true
-            || (try? FileManager.default.destinationOfSymbolicLink(atPath: url.path)) != nil
-    }
+    /// 壊れたリンクも「ある」とみなす（`FileSafety.exists`）
+    private static func exists(_ url: URL) -> Bool { FileSafety.exists(url) }
 
     /// 区切り・`.`・`..`・空を含まない 1 要素の名前か
     private static func isSingleComponent(_ s: String) -> Bool {

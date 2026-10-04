@@ -28,6 +28,14 @@ public struct RecentFolders: Codable, Hashable, Sendable {
         self.items = Array(items.prefix(Self.limit))
     }
 
+    private enum CodingKeys: String, CodingKey { case items }
+
+    /// 保存済みの履歴が上限を超えていても、上限までしか読まない
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(items: try c.decode([RecentFolder].self, forKey: .items))
+    }
+
     /// 開いたことを記録する（先頭に置く）
     public mutating func record(_ url: URL, at date: Date) {
         let path = Self.normalized(url)

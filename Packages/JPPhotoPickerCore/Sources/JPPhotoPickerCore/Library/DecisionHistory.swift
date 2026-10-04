@@ -29,9 +29,4 @@ public struct DecisionHistory: Sendable, Equatable {
         undoStack.append(c)
         return c
     }
-
-    public mutating func clear() {
-        undoStack.removeAll()
-        redoStack.removeAll()
-    }
 }
