@@ -45,9 +45,6 @@ struct BrowserCommands: Commands {
             Button("採用") { model?.toggleDecision(.picked) }
                 .keyboardShortcut("p", modifiers: [])
                 .disabled(!canOperate)
-            Button("不採用") { model?.toggleDecision(.rejected) }
-                .keyboardShortcut("x", modifiers: [])
-                .disabled(!canOperate)
             Button("判定を解除") { model?.clearDecision() }
                 .keyboardShortcut("u", modifiers: [])
                 .disabled(!canOperate)

@@ -140,7 +140,6 @@ private struct FilmstripCell: View {
                 Image(decorative: thumbnail, scale: 1)
                     .resizable()
                     .scaledToFit()
-                    .opacity(decision == .rejected ? 0.3 : 1)
             }
         }
         .frame(width: FilmstripView.cellWidth(for: item), height: FilmstripView.cellHeight)
@@ -175,11 +174,6 @@ private struct FilmstripCell: View {
                 .foregroundStyle(.white, .green)
                 .font(.system(size: 18))
                 .padding(4)
-        case .rejected:
-            Image(systemName: "xmark")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(.secondary)
-                .padding(6)
         case .undecided:
             EmptyView()
         }
@@ -190,7 +184,6 @@ private struct FilmstripCell: View {
         if entry.isBurst { base += "、連写 \(entry.groupCount) 枚中 \(entry.positionInGroup + 1) 枚目" }
         return switch decision {
         case .picked: base + "、採用"
-        case .rejected: base + "、不採用"
         case .undecided: base
         }
     }

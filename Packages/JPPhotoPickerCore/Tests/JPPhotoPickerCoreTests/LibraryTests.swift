@@ -281,7 +281,6 @@ struct DecisionTests {
     func shouldMove() {
         #expect(DecisionRules.shouldMove(decision: .undecided))
         #expect(!DecisionRules.shouldMove(decision: .picked))
-        #expect(DecisionRules.shouldMove(decision: .rejected))
     }
 
     @Test("移動対象にペアの ARW が含まれ、ARW だけも対象になる")
@@ -297,8 +296,6 @@ struct DecisionTests {
         let groups = BurstGrouper.group(items)
         let decisions: [String: Decision] = [
             "A_0002.JPG": .picked,
-            "S_0100.JPG": .rejected,
-            "R_0200.ARW": .rejected,
         ]
         let c = DecisionRules.moveCandidates(groups: groups, decisions: decisions)
         #expect(c.map(\.id) == ["A_0001.JPG", "A_0003.JPG", "S_0100.JPG", "S_0101.JPG", "R_0200.ARW"])
@@ -325,24 +322,24 @@ struct DecisionHistoryTests {
     func undoRedo() {
         var book = DecisionBook()
         book.set(.picked, for: "a.JPG")
-        book.set(.rejected, for: "b.JPG")
-        book.set(.rejected, for: "a.JPG")           // picked → rejected
-        #expect(book.set(.rejected, for: "a.JPG") == nil)   // 変化なし
+        book.set(.picked, for: "b.JPG")
+        book.set(.undecided, for: "a.JPG")          // picked → undecided
+        #expect(book.set(.undecided, for: "a.JPG") == nil)  // 変化なし
 
         let u1 = book.undo()
-        #expect(u1 == DecisionChange(itemID: "a.JPG", from: .picked, to: .rejected))
+        #expect(u1 == DecisionChange(itemID: "a.JPG", from: .picked, to: .undecided))
         #expect(book.decision(for: "a.JPG") == .picked)
         let u2 = book.undo()
         #expect(u2?.itemID == "b.JPG" && book.decision(for: "b.JPG") == .undecided)
         let r = book.redo()
-        #expect(r == DecisionChange(itemID: "b.JPG", from: .undecided, to: .rejected))
-        #expect(book.decision(for: "b.JPG") == .rejected)
+        #expect(r == DecisionChange(itemID: "b.JPG", from: .undecided, to: .picked))
+        #expect(book.decision(for: "b.JPG") == .picked)
         #expect(book.history.canRedo)
 
         // 新しい変更でやり直しは消える
         book.set(.undecided, for: "a.JPG")
         #expect(!book.history.canRedo && book.redo() == nil)
-        #expect(book.decisions == ["b.JPG": .rejected])
+        #expect(book.decisions == ["b.JPG": .picked])
     }
 
     @Test("履歴が空なら nil")
@@ -365,7 +362,7 @@ struct SessionStoreTests {
         #expect(try store.load() == SessionData())   // ファイルが無ければ空
 
         let data = SessionData(
-            decisions: ["A1_0001.JPG": .picked, "A1_0002.JPG": .rejected],
+            decisions: ["A1_0001.JPG": .picked, "A1_0003.JPG": .picked],
             applied: [ApplyRecord(date: Date(timeIntervalSince1970: 1_790_000_000),
                                   moves: [MoveRecord(from: "A1_0002.JPG", to: "_rejected/A1_0002.JPG"),
                                           MoveRecord(from: "A1_0002.ARW", to: "_rejected/A1_0002.ARW")])])
@@ -417,7 +414,7 @@ struct SessionStoreTests {
         let ok = json.replacingOccurrences(of: ",\"e.JPG\":42", with: "")
         try Data(ok.utf8).write(to: dir.appendingPathComponent(".jpphotopicker.json"))
         let s = try SessionStore(folder: dir).load()
-        #expect(s.decisions == ["a.JPG": .picked, "c.JPG": .rejected])
+        #expect(s.decisions == ["a.JPG": .picked])   // 以前の版の rejected は捨てる
     }
 
     @Test("将来の version は読めるが保存を拒否し、ファイルを書き換えない")
@@ -479,7 +476,7 @@ struct SessionStoreTests {
         """
         let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
         let s = try dec.decode(SessionData.self, from: Data(json.utf8))
-        #expect(s.decisions == ["a.JPG": .picked, "d.JPG": .rejected])
+        #expect(s.decisions == ["a.JPG": .picked])
         #expect(s.applied.count == 1)
         #expect(s.applied[0].moves.count == 1)
     }

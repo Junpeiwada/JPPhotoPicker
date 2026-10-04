@@ -143,8 +143,6 @@ struct PreviewView: View {
             switch model.currentDecision {
             case .picked:
                 badge { Label("採用", systemImage: "checkmark.circle.fill").foregroundStyle(.green) }
-            case .rejected:
-                badge { Label("不採用", systemImage: "xmark.circle.fill").foregroundStyle(.secondary) }
             case .undecided:
                 EmptyView()
             }
@@ -179,13 +177,11 @@ struct PreviewView: View {
         .font(.callout.weight(.medium))
     }
 
-    /// 採用 / 不採用の切り替え。選ばれている方を押すと未判定に戻る。次のコマへは進まない。
+    /// 採用の切り替え。採用中に押すと外す。次のコマへは進まない。
     private var decisionSegment: some View {
         HStack(spacing: 2) {
             segmentButton(.picked, title: "採用", systemImage: "checkmark.circle.fill", tint: .green, key: "P",
-                          help: "採用にします。もう一度押すと未判定に戻します（P）")
-            segmentButton(.rejected, title: "不採用", systemImage: "xmark.circle.fill", tint: .red, key: "X",
-                          help: "不採用にします。もう一度押すと未判定に戻します（X）")
+                          help: "採用にします。もう一度押すと採用を外します（P）")
         }
         .padding(3)
         .glassEffect(.regular, in: .capsule)
@@ -240,7 +236,6 @@ struct PreviewView: View {
         var text = e.item.id
         switch model.currentDecision {
         case .picked: text += "、採用"
-        case .rejected: text += "、不採用"
         case .undecided: break
         }
         if e.isBurst { text += "、連写 \(e.groupCount) 枚中 \(e.positionInGroup + 1) 枚目" }

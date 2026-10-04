@@ -40,7 +40,6 @@ final class BrowserModel {
     // MARK: 判定
     private(set) var book = DecisionBook()
     private(set) var pickedCount = 0
-    private(set) var rejectedCount = 0
 
     // MARK: ズーム・表示
     private(set) var zoom = ZoomState()
@@ -162,11 +161,9 @@ final class BrowserModel {
 
     func decision(for item: PhotoItem) -> Decision { book.decision(for: item.id) }
 
-    var remainingCount: Int { max(entries.count - pickedCount - rejectedCount, 0) }
-
     var progressText: String {
         guard hasEntries else { return isLoading ? "読み込み中…" : "" }
-        var text = "採用 \(pickedCount) ・ 不採用 \(rejectedCount) ・ 残り \(remainingCount)"
+        var text = "採用 \(pickedCount) / \(entries.count)"
         if isSessionReadOnly {
             text += " ・ 読み取り専用（保存されません）"
         } else if saveFailed {
@@ -303,7 +300,7 @@ final class BrowserModel {
         UserDefaults.standard.set(data, forKey: PreferenceKey.recentFolders)
     }
 
-    /// フォルダを開く。`id` があれば、そのコマを選んだ状態にする（無ければ最初の未判定コマ）。
+    /// フォルダを開く。`id` があれば、そのコマを選んだ状態にする（無ければ先頭のコマ）。
     /// `carrying` があれば、読み直した後でディスクの内容の代わりにそのセッション（判定・適用の記録）を使う。
     /// 保存に失敗したまま読み直しても、メモリ上の判定や取り消しの結果を失わないため。
     func open(folder: URL, selecting id: String? = nil, carrying: SessionData? = nil) {
@@ -334,7 +331,6 @@ final class BrowserModel {
         indexByID = [:]
         book = DecisionBook()
         pickedCount = 0
-        rejectedCount = 0
         currentIndex = 0
         zoom = ZoomState()
         pinchStartScale = nil
@@ -470,12 +466,8 @@ final class BrowserModel {
         // 保存できていなかった内容を引き継いだときは、読み直した後で保存し直す
         if carryUnsaved, !isSessionReadOnly { scheduleSave() }
 
-        // 続きから再開: 指定のコマ、無ければ最初の未判定コマへ
-        if let id, let i = indexByID[id] {
-            currentIndex = i
-        } else {
-            currentIndex = entries.firstIndex { book.decision(for: $0.id) == .undecided } ?? 0
-        }
+        // 続きから再開: 指定のコマ、無ければ先頭へ
+        currentIndex = id.flatMap { indexByID[$0] } ?? 0
         zoom = ZoomState()
         refreshCurrent()
         if !messages.isEmpty { post(notice: messages.joined(separator: "\n\n")) }
@@ -537,7 +529,7 @@ final class BrowserModel {
 
     // MARK: 判定
 
-    /// 今のコマの判定を切り替える（進まない）。同じ判定なら未判定に戻す。
+    /// 今のコマの判定を切り替える（進まない）。同じ判定なら未判定（不採用）に戻す。
     func toggleDecision(_ decision: Decision) {
         guard isInteractive, let item = currentItem else { return }
         book.set(currentDecision == decision ? .undecided : decision, for: item.id)
@@ -569,12 +561,7 @@ final class BrowserModel {
     }
 
     private func recount() {
-        var p = 0, r = 0
-        for d in book.decisions.values {
-            if d == .picked { p += 1 } else if d == .rejected { r += 1 }
-        }
-        pickedCount = p
-        rejectedCount = r
+        pickedCount = book.decisions.values.filter { $0 == .picked }.count
     }
 
     // MARK: 保存

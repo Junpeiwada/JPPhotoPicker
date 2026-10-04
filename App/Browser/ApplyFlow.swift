@@ -27,11 +27,13 @@ private struct ApplyFlowModifier: ViewModifier {
                 Button(model.pickedCount == 0 ? "すべて移動する" : "移動する", role: .destructive) { model.confirmApply(plan) }
                 Button("キャンセル", role: .cancel) {}
             } message: { plan in
-                let files = "（JPG \(plan.jpgCount) 枚・ARW \(plan.arwCount) 枚）。「適用を取り消す」で元に戻せます。"
+                let total = model.entries.count
+                let moving = plan.candidates.count
+                let files = "JPG \(plan.jpgCount) 枚・ARW \(plan.arwCount) 枚"
                 if model.pickedCount == 0 {
-                    Text("採用の印が付いたコマがひとつもないため、フォルダ内の \(model.entries.count) コマすべてを \(ApplyEngine.rejectedFolderName) に移します。\n" + files)
+                    Text("採用の印が付いたコマがひとつもないため、フォルダ内の \(total) コマすべてを \(ApplyEngine.rejectedFolderName) に移します。\n（\(files)）。「適用を取り消す」で元に戻せます。")
                 } else {
-                    Text("採用の印が無いコマを \(ApplyEngine.rejectedFolderName) に移します。\n\(plan.candidates.count) / \(model.entries.count) コマ" + files)
+                    Text("採用の印が無いコマを \(ApplyEngine.rejectedFolderName) に移します。\n採用 \(total - moving) / \(total)（残す）\n不採用 \(moving) / \(total)（移動。\(files)）\n「適用を取り消す」で元に戻せます。")
                 }
             }
             // 取り消しの確認

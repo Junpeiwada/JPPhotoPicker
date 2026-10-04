@@ -55,6 +55,7 @@ public struct SessionData: Sendable, Codable, Equatable {
     private enum CodingKeys: String, CodingKey { case version, decisions, applied }
 
     /// decisions は要素ごとにデコードし、未知の値・未判定は捨てる（全体を失敗させない）。
+    /// 以前の版が書いた `rejected` も未知の値として捨てる（採用していないコマと同じ扱いになる）。
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1

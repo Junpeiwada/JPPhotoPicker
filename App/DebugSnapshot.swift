@@ -30,7 +30,6 @@ enum DebugScript {
                 case "f": model.moveToFocus()
                 case "i": model.toggleInfo()
                 case "p": model.toggleDecision(.picked)
-                case "x": model.toggleDecision(.rejected)
                 case "undo": model.undo()
                 case "apply": model.requestApply()
                 case "confirmApply": if let plan = model.pendingApplyPlan { model.confirmApply(plan) }

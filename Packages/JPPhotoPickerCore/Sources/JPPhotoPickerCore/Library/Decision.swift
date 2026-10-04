@@ -1,10 +1,9 @@
 import Foundation
 
-/// 判定（未判定 / 採用 / 不採用）
+/// 判定（未判定 / 採用）。採用していないコマは不採用として扱う
 public enum Decision: String, Sendable, Codable, Hashable, CaseIterable {
     case undecided
     case picked
-    case rejected
 }
 
 /// 移す対象の 1 コマ
@@ -18,7 +17,7 @@ public struct MoveCandidate: Sendable, Hashable, Identifiable {
 }
 
 public enum DecisionRules {
-    /// 移すかどうか。連写・単写とも「採用以外」を移す。
+    /// 移すかどうか。連写・単写とも、採用していないコマを移す。
     public static func shouldMove(decision: Decision) -> Bool {
         decision != .picked
     }
