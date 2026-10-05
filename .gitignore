@@ -9,3 +9,13 @@ xcuserdata/
 
 # macOS
 .DS_Store
+
+# CI のリリース成果物（Tools/release.sh やローカル検証で生成される）
+dist/
+pages/
+sparkle-tools/
+sparkle.tar.xz
+
+# Sparkle の秘密鍵（generate_keys -x で書き出したもの。絶対にコミットしない）
+sparkle_priv*.key
+sparkle_private_key*.txt

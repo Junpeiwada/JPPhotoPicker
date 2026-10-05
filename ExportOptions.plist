@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Mac App Store 外配布（Developer ID 署名）。CI の xcodebuild -exportArchive で使用。 -->
+	<key>method</key>
+	<string>developer-id</string>
+	<!-- 署名は手動（CI で一時キーチェーンに入れた Developer ID Application 証明書を使う）。 -->
+	<key>signingStyle</key>
+	<string>manual</string>
+	<!-- チーム ID（Developer ID Application 証明書の Team）。CI では $TEAM_ID でも上書きされる。 -->
+	<key>teamID</key>
+	<string>L897K2C26B</string>
+	<!-- 埋め込みフレームワーク（Sparkle）も含めて Developer ID で再署名する。 -->
+	<key>signingCertificate</key>
+	<string>Developer ID Application</string>
+</dict>
+</plist>

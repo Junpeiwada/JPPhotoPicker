@@ -1,0 +1,184 @@
+name: Release
+
+# タグ `v*`（例: v1.2.0）push でリリースを発行する。手動実行も可（バージョンを入力）。
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "リリースバージョン（例: 1.2.0）。タグ push 時は不要。"
+        required: false
+
+permissions:
+  contents: write   # gh release 作成 / gh-pages への appcast push に必要
+
+jobs:
+  release:
+    # deploymentTarget が macOS 26.0 のため、macOS 26 SDK を持つランナーを使う。
+    runs-on: macos-26
+    env:
+      SCHEME: JPPhotoPicker
+      PROJECT: JPPhotoPicker.xcodeproj
+      TEAM_ID: ${{ secrets.TEAM_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: バージョン / タグを決定
+        id: vars
+        run: |
+          set -euo pipefail
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${{ github.ref_name }}"
+            VERSION="${TAG#v}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+            TAG="v${VERSION}"
+          fi
+          if [ -z "${VERSION}" ]; then
+            echo "::error::バージョンを決定できません（タグ push か workflow_dispatch の version 入力が必要）"
+            exit 1
+          fi
+          echo "tag=${TAG}"        >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          # CFBundleVersion（Sparkle の比較基準）は単調増加する run 番号を使う。
+          echo "build=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          echo "リリース: ${TAG} (version=${VERSION}, build=${{ github.run_number }})"
+
+      - name: Xcode を選択
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: ロジックのテスト（JPPhotoPickerCore）
+        # 実画像サンプルが無いテストは skip される
+        run: swift test --package-path Packages/JPPhotoPickerCore
+
+      - name: XcodeGen を導入
+        run: brew install xcodegen
+
+      - name: Xcode プロジェクトを生成
+        # .xcodeproj は .gitignore 対象（project.yml が真実のソース）なので必須。
+        run: xcodegen generate
+
+      - name: Sparkle 公開鍵が設定済みか確認
+        run: |
+          set -euo pipefail
+          if grep -q "REPLACE_WITH_SPARKLE_ED_PUBLIC_KEY" JPPhotoPicker-Info.plist; then
+            echo "::error::SUPublicEDKey が未設定です。generate_keys で生成した公開鍵を project.yml に反映してください。"
+            exit 1
+          fi
+
+      - name: Developer ID 証明書をインポート
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.DEVELOPER_ID_CERT_P12 }}
+          p12-password: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
+
+      - name: アーカイブ（Developer ID 署名）
+        run: |
+          set -euo pipefail
+          xcodebuild archive \
+            -project "${PROJECT}" \
+            -scheme "${SCHEME}" \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -archivePath build/JPPhotoPicker.xcarchive \
+            -derivedDataPath build/DerivedData \
+            -clonedSourcePackagesDirPath build/SourcePackages \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Developer ID Application" \
+            DEVELOPMENT_TEAM="${TEAM_ID}" \
+            MARKETING_VERSION="${{ steps.vars.outputs.version }}" \
+            CURRENT_PROJECT_VERSION="${{ steps.vars.outputs.build }}" \
+            -allowProvisioningUpdates
+
+      - name: アーカイブをエクスポート（.app 取得・Sparkle も再署名）
+        run: |
+          set -euo pipefail
+          xcodebuild -exportArchive \
+            -archivePath build/JPPhotoPicker.xcarchive \
+            -exportPath build/export \
+            -exportOptionsPlist ExportOptions.plist
+          ls -la build/export
+
+      - name: 公証（notarytool）
+        env:
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          echo -n "${ASC_API_KEY_P8}" | base64 --decode > build/AuthKey.p8
+          # 公証提出は .app を zip 化したものを送る（配布 zip とは別に作る）。
+          ditto -c -k --keepParent "build/export/${SCHEME}.app" build/notarize.zip
+          xcrun notarytool submit build/notarize.zip \
+            --key build/AuthKey.p8 \
+            --key-id "${ASC_KEY_ID}" \
+            --issuer "${ASC_ISSUER_ID}" \
+            --wait
+          rm -f build/AuthKey.p8
+
+      - name: ステープル（公証結果を .app に添付）
+        run: |
+          set -euo pipefail
+          xcrun stapler staple "build/export/${SCHEME}.app"
+          xcrun stapler validate "build/export/${SCHEME}.app"
+          spctl -a -vvv --type execute "build/export/${SCHEME}.app" || true
+
+      - name: 配布 zip を作成
+        id: pack
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ZIP="${SCHEME}-${{ steps.vars.outputs.version }}.zip"
+          ditto -c -k --keepParent "build/export/${SCHEME}.app" "dist/${ZIP}"
+          echo "zip=${ZIP}" >> "$GITHUB_OUTPUT"
+          ls -la dist
+
+      - name: Sparkle ツールを取得
+        run: |
+          set -euo pipefail
+          curl -fL -o sparkle.tar.xz \
+            https://github.com/sparkle-project/Sparkle/releases/download/2.9.3/Sparkle-2.9.3.tar.xz
+          mkdir -p sparkle-tools && tar -xf sparkle.tar.xz -C sparkle-tools
+          ls -la sparkle-tools/bin
+
+      - name: GitHub Release を作成（zip 添付）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release create "${{ steps.vars.outputs.tag }}" \
+            "dist/${{ steps.pack.outputs.zip }}" \
+            --title "${{ steps.vars.outputs.tag }}" \
+            --generate-notes
+
+      - name: appcast.xml を生成（Release アセットへ向ける）
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          printf '%s' "${SPARKLE_PRIVATE_KEY}" > sparkle_priv.key
+          ./sparkle-tools/bin/generate_appcast dist/ \
+            --ed-key-file sparkle_priv.key \
+            --download-url-prefix "https://github.com/${{ github.repository }}/releases/download/${{ steps.vars.outputs.tag }}/"
+          rm -f sparkle_priv.key
+          mkdir -p pages
+          cp dist/appcast.xml pages/appcast.xml
+          cat pages/appcast.xml
+
+      - name: ランディングページ（site/）を配信対象に含める
+        run: |
+          if [ -d site ]; then cp -R site/. pages/; else echo "site/ が無いのでスキップ"; fi
+
+      - name: appcast / ランディングページを GitHub Pages へ publish
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: ./pages
+          keep_files: true
