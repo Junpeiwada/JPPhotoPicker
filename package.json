@@ -1,0 +1,7 @@
+{
+  "name": "jpphotopicker",
+  "private": true,
+  "scripts": {
+    "release": "Tools/release.sh"
+  }
+}
