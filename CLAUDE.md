@@ -17,10 +17,14 @@ swift test --filter "ZoomStateTests/<関数名>" # 1件だけ
 # アプリのビルド（JPPhotoPicker.xcodeproj は git 管理外。project.yml から生成する）
 xcodegen generate
 xcodebuild -project JPPhotoPicker.xcodeproj -scheme JPPhotoPicker -configuration Debug build -quiet
+
+# リリース（版の更新 → コミット → タグ → push。CI が署名・公証・Release・appcast 更新まで行う）
+Tools/release.sh 0.1.2
 ```
 
 - Swift 6.0 / `SWIFT_STRICT_CONCURRENCY: complete`。並行性の警告・エラーを出さないこと
 - ファイルを追加・削除したら `xcodegen generate` をやり直す（`project.yml` は `App/` をまるごとソースにしている）
+- リリースの仕組みは [Docs/リリース手順.md](Docs/リリース手順.md)。`JPPhotoPicker-Info.plist` は XcodeGen の生成物だが、Sparkle のキーを入れるため版管理している（正本は `project.yml`）
 
 ### 開発用の起動引数（DEBUG ビルドのみ、`App/DebugSnapshot.swift`）
 
@@ -55,6 +59,7 @@ GUI を目視せずに動作を確かめる仕組み。
 - `Imaging/ImagePipeline` — サムネイル / 大プレビュー（MPF 1920px、仮表示）/ 全体表示用（本体を画面の画素数に縮小）/ 本体の4段階。種類ごとの `OperationQueue` でデコードし（Swift の協調プールを塞がない）、同じ画像の要求は1ジョブにまとめ、`NSCache` に置く。サムネイル以外は **IOSurface に描いてから持つ**（CGImage をレイヤーに渡すと、コミット時にメインスレッドで色変換・コピーが走り、コマ送りが 1 回 40ms ほど止まる）。ARW だけのファイルは埋め込み JPEG、全体表示・拡大時は RAW 現像
 - `Viewer/ZoomableImageView` — ピンチ・ドラッグ・スクロール・クリックを NSView で受けて `BrowserModel` に渡す
 - `AppLifecycle` — 適用・取り消しの実行中は終了やウインドウのクローズを止める
+- `Update/UpdaterController` — Sparkle の自動更新。起動のたびに裏で確認し（DEBUG では手動だけ）、適用・取り消しの実行中は更新後の再起動を待たせる
 
 ## 仕様上の要注意点（コードだけでは分かりにくいもの）
 

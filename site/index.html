@@ -1,0 +1,678 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JPPhotoPicker — Sony α の連写を、待たずに選別</title>
+<meta name="description" content="Sony α で JPG + ARW を同時記録した写真を、連写ごとにまとめて高速に選別できる macOS アプリです。採用しなかったコマは JPG と ARW ごと _rejected フォルダへ移します。">
+<link rel="icon" href="icon.png">
+<meta property="og:title" content="JPPhotoPicker">
+<meta property="og:description" content="Sony α の JPG + RAW を、連写ごとに高速に選別できる macOS アプリです。">
+<meta property="og:image" content="https://junpeiwada.github.io/JPPhotoPicker/icon.png">
+<meta property="og:type" content="website">
+<style>
+  :root {
+    /* アイコン由来のブランド色 */
+    --cyan:        #40C9E7;
+    --cyan-deep:   #0E7C93;  /* 白地で本文・リンクに使える濃度まで落としたもの */
+    --cyan-ink:    #06505F;
+    --cyan-wash:   #ECFAFD;
+    --cyan-edge:   #BEE9F3;
+
+    --bg:          #F7FAFC;
+    --surface:     #FFFFFF;
+    --ink:         #10242B;
+    --ink-soft:    #4A6069;
+    --ink-faint:   #7D939B;
+    --line:        #E2E4E5;  /* アイコンのグレーをそのまま境界線に */
+    --line-soft:   #EEF2F4;
+
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", "Yu Gothic Medium", sans-serif;
+
+    --r-lg: 18px;
+    --r-md: 12px;
+    --r-sm: 8px;
+
+    --shadow-sm: 0 1px 2px rgba(16, 36, 43, .05);
+    --shadow-md: 0 2px 4px rgba(16, 36, 43, .04), 0 8px 24px rgba(16, 36, 43, .06);
+    --shadow-lg: 0 4px 8px rgba(16, 36, 43, .05), 0 24px 56px rgba(14, 124, 147, .13);
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after {
+      animation-duration: .001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: .001ms !important;
+    }
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.8;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* 背景に、コンタクトシートのような方眼をうっすら敷く */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background:
+      radial-gradient(900px 460px at 50% -8%, rgba(64, 201, 231, .16), transparent 68%),
+      linear-gradient(var(--line-soft) 1px, transparent 1px) 0 0 / 100% 88px,
+      linear-gradient(90deg, var(--line-soft) 1px, transparent 1px) 0 0 / 88px 100%;
+    background-color: var(--bg);
+    mask-image: linear-gradient(#000 0%, #000 42%, transparent 78%);
+    -webkit-mask-image: linear-gradient(#000 0%, #000 42%, transparent 78%);
+  }
+
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
+
+  /* 日本語を文節の途中で折り返さない。auto-phrase は Chrome 系だけなので、見出しは .nb で文節を囲んで Safari でも崩れないようにする */
+  h1, h2, h3, p, li { word-break: auto-phrase; line-break: strict; }
+  h1, h2, h3 { text-wrap: balance; }
+  p, li { text-wrap: pretty; }
+  .nb { display: inline-block; }
+
+  a { color: var(--cyan-deep); text-underline-offset: 3px; }
+  a:hover { color: var(--cyan-ink); }
+  :focus-visible {
+    outline: 2px solid var(--cyan-deep);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+
+  /* ---------- ヘッダー ---------- */
+  .nav {
+    display: flex; align-items: center; gap: 12px;
+    padding: 22px 0;
+  }
+  .nav__mark {
+    width: 30px; height: 30px; border-radius: 7px; display: block;
+    box-shadow: var(--shadow-sm);
+  }
+  .nav__name { font-weight: 700; letter-spacing: -.01em; font-size: 1rem; }
+  .nav__spacer { flex: 1; }
+  .nav__link {
+    font-size: .875rem; color: var(--ink-soft); text-decoration: none; font-weight: 500;
+  }
+  .nav__link:hover { color: var(--cyan-ink); }
+
+  /* ---------- ヒーロー ---------- */
+  .hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr);
+    gap: 56px;
+    align-items: center;
+    padding: 56px 0 76px;
+  }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--mono);
+    font-size: .72rem; letter-spacing: .13em; text-transform: uppercase;
+    color: var(--cyan-ink);
+    background: var(--cyan-wash);
+    border: 1px solid var(--cyan-edge);
+    border-radius: 999px;
+    padding: 5px 13px;
+    margin: 0 0 22px;
+  }
+  .eyebrow::before {
+    content: ""; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--cyan); flex: none;
+  }
+  h1 {
+    font-size: clamp(2.1rem, 4.6vw, 3.05rem);
+    line-height: 1.22;
+    letter-spacing: -.03em;
+    font-weight: 800;
+    margin: 0 0 20px;
+  }
+  h1 .accent {
+    background: linear-gradient(transparent 62%, rgba(64, 201, 231, .42) 62%);
+  }
+  .lede {
+    font-size: 1.075rem;
+    color: var(--ink-soft);
+    margin: 0 0 30px;
+    max-width: 34em;
+  }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 9px;
+    font-weight: 650; font-size: .95rem;
+    text-decoration: none;
+    padding: 13px 24px;
+    border-radius: var(--r-md);
+    transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
+  }
+  .btn--primary {
+    background: linear-gradient(180deg, var(--cyan) 0%, #22B4D4 100%);
+    color: #04333D;
+    box-shadow: 0 1px 0 rgba(255,255,255,.5) inset, 0 6px 18px rgba(34, 180, 212, .38);
+  }
+  .btn--primary:hover { transform: translateY(-1px); box-shadow: 0 1px 0 rgba(255,255,255,.5) inset, 0 10px 24px rgba(34, 180, 212, .46); }
+  .btn--ghost {
+    background: var(--surface);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    box-shadow: var(--shadow-sm);
+  }
+  .btn--ghost:hover { border-color: var(--cyan-edge); color: var(--cyan-ink); }
+  .meta {
+    margin: 18px 0 0;
+    font-size: .84rem;
+    color: var(--ink-faint);
+    display: flex; flex-wrap: wrap; gap: 6px 14px;
+  }
+  .meta span { white-space: nowrap; }
+
+  /* ---------- ヒーローの疑似ウィンドウ（署名要素） ---------- */
+  .mock {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+    animation: rise .7s cubic-bezier(.2, .7, .3, 1) both;
+  }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: none; }
+  }
+  .mock__bar {
+    display: flex; align-items: center; gap: 7px;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--line-soft);
+    background: #FBFDFE;
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--line); }
+  .mock__title {
+    margin-left: 6px; font-size: .78rem; color: var(--ink-faint); font-weight: 600;
+  }
+
+  /* ---------- ヒーローの疑似ウインドウ：プレビュー＋フィルムストリップ ---------- */
+  .hero > * { min-width: 0; }  /* 横に長いフィルムストリップで列が広がらないように */
+  .viewer { background: #1B1F22; position: relative; aspect-ratio: 3 / 2; overflow: hidden; }
+  .photo {
+    position: absolute; inset: 0;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0) 55%, rgba(0,0,0,.18) 100%),
+      linear-gradient(162deg, #7FD3EC 0%, #B9E6F2 46%, #E9F4EE 47%, #9CC79A 62%, #5E8F5B 100%);
+  }
+  .photo::before { /* 山 */
+    content: ""; position: absolute; left: 8%; right: 30%; bottom: 31%; height: 34%;
+    background: #6E8C9B; clip-path: polygon(0 100%, 38% 12%, 52% 38%, 70% 0, 100% 100%);
+    opacity: .75;
+  }
+  .photo::after { /* 鳥（ピントの合う被写体） */
+    content: ""; position: absolute; left: 61%; top: 33%; width: 9%; height: 6%;
+    background: #23313A; border-radius: 50% 50% 40% 40%;
+    clip-path: polygon(0 60%, 30% 20%, 50% 55%, 70% 20%, 100% 60%, 50% 100%);
+  }
+  .focus {
+    position: absolute; left: 57%; top: 26%; width: 17%; height: 20%;
+    border: 2px solid #7CFC9A; border-radius: 3px;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.35);
+    animation: focus 1.1s .6s ease both;
+  }
+  @keyframes focus {
+    0% { opacity: 0; transform: scale(1.5); }
+    60% { opacity: 1; transform: scale(.96); }
+    100% { opacity: 1; transform: none; }
+  }
+  .badge {
+    position: absolute; left: 12px; bottom: 12px;
+    display: flex; gap: 6px; align-items: center;
+    font-size: .68rem; font-weight: 600; color: #fff;
+  }
+  .badge span {
+    padding: 3px 8px; border-radius: 6px;
+    background: rgba(20, 24, 27, .62);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  }
+  .badge .pick { background: #2FA84F; }
+  .badge .file { font-family: var(--mono); font-weight: 500; }
+  .strip {
+    display: flex; gap: 4px; align-items: flex-end;
+    padding: 10px 12px 12px; background: #24292D; overflow: hidden;
+  }
+  .strip .gap { width: 8px; flex: none; }
+  .th {
+    flex: none; width: 34px; height: 24px; border-radius: 3px; position: relative;
+    background: linear-gradient(162deg, #7FD3EC 0%, #CDEBF2 48%, #8FBF8D 52%, #557F52 100%);
+    opacity: .82;
+  }
+  .th--alt { background: linear-gradient(170deg, #E9C99A 0%, #F4E3C6 50%, #A7896A 100%); }
+  .th--cur { opacity: 1; outline: 2px solid #fff; outline-offset: 1px; }
+  .th--pick::after {
+    content: "✓"; position: absolute; right: -3px; top: -5px;
+    width: 13px; height: 13px; border-radius: 50%;
+    background: #2FA84F; color: #fff; font-size: 9px; line-height: 13px; text-align: center; font-weight: 700;
+  }
+  .grp { display: flex; gap: 3px; padding-bottom: 5px; border-bottom: 2px solid transparent; }
+  .grp--cur { border-bottom-color: var(--cyan); }
+
+  .mock__foot {
+    display: flex; gap: 8px; align-items: center;
+    padding: 11px 15px;
+    border-top: 1px solid var(--line-soft);
+    background: #FBFDFE;
+  }
+  .chip {
+    font-size: .72rem; font-weight: 600;
+    padding: 5px 11px; border-radius: 7px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink-soft);
+  }
+  .chip--on {
+    background: var(--cyan-wash);
+    border-color: var(--cyan-edge);
+    color: var(--cyan-ink);
+  }
+  .mock__foot .spacer { flex: 1; }
+
+  /* ---------- セクション ---------- */
+  section { padding: 62px 0; }
+  .sec-head { max-width: 40em; margin: 0 0 32px; }
+  h2 {
+    font-size: clamp(1.5rem, 2.6vw, 1.95rem);
+    letter-spacing: -.02em;
+    font-weight: 750;
+    margin: 0 0 12px;
+    line-height: 1.35;
+  }
+  .sec-head p { margin: 0; color: var(--ink-soft); }
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(268px, 1fr));
+    gap: 18px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    padding: 26px 24px;
+    box-shadow: var(--shadow-sm);
+    transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+  }
+  .card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+    border-color: var(--cyan-edge);
+  }
+  .card h3 {
+    font-size: 1.03rem; font-weight: 700; margin: 0 0 9px; letter-spacing: -.01em;
+  }
+  .card p { margin: 0; color: var(--ink-soft); font-size: .93rem; line-height: 1.75; }
+  .card__icon {
+    width: 38px; height: 38px; border-radius: 10px;
+    background: var(--cyan-wash);
+    border: 1px solid var(--cyan-edge);
+    display: grid; place-items: center;
+    margin: 0 0 16px;
+    color: var(--cyan-ink);
+  }
+  .card__icon svg { width: 19px; height: 19px; display: block; }
+
+  /* 操作カード：4 つが割り切れるように 2 列 / 4 列で組む */
+  .cards--ops { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  @media (max-width: 980px) { .cards--ops { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 520px) { .cards--ops { grid-template-columns: 1fr; } }
+  .card--op { display: flex; gap: 16px; align-items: flex-start; padding: 20px 22px; }
+  .card--op .k { flex: none; }
+  .card--op .d { min-width: 0; }
+  .card--op h3 { margin: 0 0 3px; font-size: .95rem; }
+  kbd {
+    font-family: var(--mono); font-size: .78rem; font-weight: 600;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-bottom-width: 2px;
+    border-radius: 6px;
+    padding: 3px 8px;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+  .glyph-btn {
+    width: 34px; height: 34px; border-radius: 9px;
+    background: var(--cyan-wash); border: 1px solid var(--cyan-edge);
+    display: grid; place-items: center; color: var(--cyan-ink);
+  }
+  .glyph-btn svg { width: 17px; height: 17px; }
+
+  /* 認識モードの比較 */
+  .modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+  .mode {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+  }
+  .mode--pick { border-color: var(--cyan-edge); box-shadow: var(--shadow-md); }
+  .mode__head {
+    padding: 18px 22px 14px;
+    border-bottom: 1px solid var(--line-soft);
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  }
+  .mode__head h3 { margin: 0; font-size: 1.05rem; font-weight: 700; }
+  .tag {
+    font-family: var(--mono); font-size: .66rem; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--ink-faint); border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px;
+  }
+  .tag--on { color: var(--cyan-ink); border-color: var(--cyan-edge); background: var(--cyan-wash); }
+  .mode__spec { margin: 0; padding: 14px 22px; }
+  .mode__spec div {
+    display: flex; justify-content: space-between; gap: 16px;
+    padding: 6px 0; font-size: .88rem;
+    border-bottom: 1px dashed var(--line-soft);
+  }
+  .mode__spec div:last-child { border-bottom: 0; }
+  .mode__spec dt { color: var(--ink-faint); }
+  .mode__spec dd { margin: 0; font-weight: 600; text-align: right; }
+  .mode__use {
+    padding: 13px 22px 18px; margin: 0;
+    color: var(--ink-soft); font-size: .9rem;
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .note {
+    margin: 22px 0 0;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--cyan);
+    border-radius: var(--r-md);
+    padding: 16px 20px;
+    color: var(--ink-soft);
+    font-size: .92rem;
+  }
+  .note strong { color: var(--ink); }
+  code {
+    font-family: var(--mono); font-size: .88em;
+    background: var(--cyan-wash);
+    border: 1px solid var(--cyan-edge);
+    border-radius: 5px;
+    padding: 1px 5px;
+    color: var(--cyan-ink);
+  }
+
+  /* プライバシー */
+  .privacy {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    padding: 34px;
+    box-shadow: var(--shadow-sm);
+    display: grid;
+    grid-template-columns: minmax(0, 1.08fr) minmax(0, .92fr);
+    gap: 40px;
+    align-items: center;
+  }
+  .privacy h2 { margin-bottom: 10px; }
+  .privacy p { color: var(--ink-soft); margin: 0 0 14px; }
+  .privacy p:last-child { margin-bottom: 0; }
+  .facts { list-style: none; margin: 0; padding: 0; }
+  .facts li {
+    display: flex; gap: 11px; align-items: flex-start;
+    padding: 11px 0;
+    border-bottom: 1px solid var(--line-soft);
+    font-size: .93rem;
+  }
+  .facts li:last-child { border-bottom: 0; }
+  .facts svg { width: 17px; height: 17px; flex: none; margin-top: 5px; color: var(--cyan-deep); }
+
+  /* 末尾のCTA */
+  .close {
+    text-align: center;
+    background: linear-gradient(165deg, #FFFFFF 0%, var(--cyan-wash) 100%);
+    border: 1px solid var(--cyan-edge);
+    border-radius: 22px;
+    padding: 52px 32px;
+    box-shadow: var(--shadow-md);
+  }
+  .close img { width: 68px; height: 68px; border-radius: 15px; margin-bottom: 18px; box-shadow: var(--shadow-sm); }
+  .close h2 { margin-bottom: 10px; }
+  .close p { color: var(--ink-soft); margin: 0 0 26px; }
+  .close .actions { justify-content: center; }
+  .close .meta { justify-content: center; }
+
+  footer {
+    border-top: 1px solid var(--line);
+    margin-top: 62px;
+    padding: 30px 0 56px;
+    color: var(--ink-faint);
+    font-size: .87rem;
+    display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center;
+  }
+  footer .spacer { flex: 1; }
+  footer a { text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+
+  /* ---------- レスポンシブ ---------- */
+  @media (max-width: 880px) {
+    .hero { grid-template-columns: 1fr; gap: 40px; padding: 34px 0 54px; }
+    .privacy { grid-template-columns: 1fr; gap: 26px; padding: 26px; }
+    section { padding: 46px 0; }
+  }
+  @media (max-width: 560px) {
+    .wrap { padding: 0 18px; }
+    .btn { width: 100%; justify-content: center; }
+    .close { padding: 38px 22px; border-radius: 18px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <nav class="nav">
+    <img class="nav__mark" src="icon.png" alt="">
+    <span class="nav__name">JPPhotoPicker</span>
+    <span class="nav__spacer"></span>
+    <a class="nav__link" href="https://github.com/Junpeiwada/JPPhotoPicker">GitHub</a>
+  </nav>
+
+  <!-- ヒーロー -->
+  <header class="hero">
+    <div>
+      <p class="eyebrow">macOS 写真選別アプリ</p>
+      <h1>連写の山から、<br><span class="accent">残す 1 枚</span>を<br><span class="nb">待たずに</span><span class="nb">選べます。</span></h1>
+      <p class="lede">
+        Sony α で JPG と ARW を同時記録した写真を、連写ごとにまとめて見比べられます。<br>
+        キーひとつで採用の印を付け、最後に「適用」すれば、採用しなかったコマを JPG と ARW ごと <code>_rejected</code> フォルダへ移します。<br>
+        消すのではなく移すだけなので、あとから取り消せます。
+      </p>
+      <div class="actions">
+        <a class="btn btn--primary" href="https://github.com/Junpeiwada/JPPhotoPicker/releases/latest">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"></path><path d="m7 11 5 5 5-5"></path><path d="M4 20h16"></path></svg>
+          最新版をダウンロード
+        </a>
+        <a class="btn btn--ghost" href="https://github.com/Junpeiwada/JPPhotoPicker">ソースを見る</a>
+      </div>
+      <p class="meta">
+        <span>macOS 26 以降</span>
+        <span>Developer ID 署名・公証済み</span>
+        <span>MIT ライセンス</span>
+        <span>無料</span>
+      </p>
+    </div>
+
+    <!-- 署名要素：選別画面の疑似モック -->
+    <div class="mock" role="img" aria-label="選別画面のイメージ。大きなプレビューに被写体のフォーカス枠と採用の印、下に連写グループごとに区切られたフィルムストリップが並ぶ。">
+      <div class="mock__bar" aria-hidden="true">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <span class="mock__title">2026-09-28 野鳥 — 採用 12 / 248</span>
+      </div>
+      <div class="viewer" aria-hidden="true">
+        <div class="photo"></div>
+        <span class="focus"></span>
+        <div class="badge"><span class="pick">✓ 採用</span><span>連写 3/6</span><span class="file">A1_07866.JPG</span></div>
+      </div>
+      <div class="strip" aria-hidden="true"><div class="grp"><span class="th "></span></div><span class="gap"></span><div class="grp grp--cur"><span class="th th--pick"></span><span class="th "></span><span class="th th--pick th--cur"></span><span class="th "></span><span class="th "></span><span class="th "></span></div><span class="gap"></span><div class="grp"><span class="th th--alt th--pick"></span></div><span class="gap"></span><div class="grp"><span class="th th--alt"></span><span class="th th--alt"></span><span class="th th--alt"></span></div></div>
+      <div class="mock__foot" aria-hidden="true">
+        <span class="chip chip--on">P 採用</span>
+        <span class="chip">Z 拡大</span>
+        <span class="chip">⇧→ 次のグループ</span>
+        <span class="spacer"></span>
+        <span class="chip">適用…</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- 速さ -->
+  <section>
+    <div class="sec-head">
+      <h2><span class="nb">コマ送りで</span><span class="nb">待たされません</span></h2>
+      <p>1 回に 1,000〜5,000 枚を選別する前提で作っています。<br>キーを押してから写真が出るまでの待ちを、できるだけなくしました。</p>
+    </div>
+    <div class="cards">
+      <div class="card">
+        <div class="card__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4.5 13H11l-1 9 8.5-11H12l1-9Z"/></svg>
+        </div>
+        <h3><span class="nb">まず</span><span class="nb">埋め込みプレビューを</span><span class="nb">出します</span></h3>
+        <p>JPG に入っている 1920px のプレビューをすぐに表示し、裏で画面の画素数に合わせた高画質の画像に差し替えます。<br>前後のコマは先読みしておきます。</p>
+      </div>
+      <div class="card">
+        <div class="card__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="6" height="12" rx="1"/><rect x="9" y="6" width="6" height="12" rx="1"/><rect x="16" y="6" width="6" height="12" rx="1"/></svg>
+        </div>
+        <h3><span class="nb">連写は</span><span class="nb">自動で</span><span class="nb">まとまります</span></h3>
+        <p>Sony の MakerNote にある連写の番号を読み、ひと続きの連写をひとつのグループにします。<br>グループ単位で飛ばせるので、見比べたいところだけに時間を使えます。</p>
+      </div>
+      <div class="card">
+        <div class="card__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><path d="M11 8v6"/><path d="M8 11h6"/></svg>
+        </div>
+        <h3><span class="nb">ピントの位置を</span><span class="nb">一発で拡大</span></h3>
+        <p>カメラが記録したフォーカス位置に枠を描き、<kbd>Z</kbd> でその場所を 100%・200% に拡大します。<br>同じグループの中でコマを移っても、拡大した位置と倍率はそのままです。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 操作 -->
+  <section>
+    <div class="sec-head">
+      <h2><span class="nb">手は</span><span class="nb">キーボードに</span><span class="nb">置いたまま</span></h2>
+      <p>キー操作は Lightroom 風です。<br>ほかに <kbd>⌘Z</kbd> で判定の取り消し、<kbd>⇧F</kbd> でフォーカス枠、<kbd>I</kbd> で撮影情報を切り替えます。</p>
+    </div>
+    <div class="cards cards--ops">
+      <div class="card card--op">
+        <div class="k"><kbd>P</kbd></div>
+        <div class="d"><h3>採用</h3><p>もう一度押すと外れます</p></div>
+      </div>
+      <div class="card card--op">
+        <div class="k"><kbd>←</kbd> <kbd>→</kbd></div>
+        <div class="d"><h3>前後のコマ</h3><p>採用しても勝手には進みません</p></div>
+      </div>
+      <div class="card card--op">
+        <div class="k"><kbd>⇧→</kbd></div>
+        <div class="d"><h3>次のグループ</h3><p>連写をまとめて飛ばします</p></div>
+      </div>
+      <div class="card card--op">
+        <div class="k"><kbd>Z</kbd></div>
+        <div class="d"><h3>拡大</h3><p>全体 → 100% → 200%</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 判定のルール -->
+  <section>
+    <div class="sec-head">
+      <h2>判定は「採用」だけ</h2>
+      <p>不採用の印は付けません。<br>採用していないコマが、そのまま不採用になります。<br>連写でも単写でもルールは同じです。</p>
+    </div>
+    <div class="modes">
+      <div class="mode mode--pick">
+        <div class="mode__head">
+          <h3>採用したコマ</h3>
+          <span class="tag tag--on">残す</span>
+        </div>
+        <dl class="mode__spec">
+          <div><dt>キー</dt><dd>P</dd></div>
+          <div><dt>印</dt><dd>緑のチェック</dd></div>
+          <div><dt>適用したとき</dt><dd>その場に残る</dd></div>
+        </dl>
+        <p class="mode__use">ひとつの連写グループから、何枚でも採用できます。</p>
+      </div>
+      <div class="mode">
+        <div class="mode__head">
+          <h3>それ以外のコマ</h3>
+          <span class="tag">移す</span>
+        </div>
+        <dl class="mode__spec">
+          <div><dt>キー</dt><dd>なし</dd></div>
+          <div><dt>印</dt><dd>なし</dd></div>
+          <div><dt>適用したとき</dt><dd>_rejected/ へ移す</dd></div>
+        </dl>
+        <p class="mode__use">JPG と同じ名前の ARW も一緒に移します。<br>片方だけ残ることはありません。</p>
+      </div>
+    </div>
+    <p class="note">
+      移す前に、残すコマと移すコマの数を確認ダイアログで表示します。<br>採用がひとつも無いときは、全部のコマが移ることを警告します。<br>
+      <strong>移したあとでも「適用を取り消す」で元の場所に戻せます。</strong>
+    </p>
+  </section>
+
+  <!-- 安心 -->
+  <section>
+    <div class="privacy">
+      <div>
+        <h2><span class="nb">写真は</span><span class="nb">手元から</span><span class="nb">出ません</span></h2>
+        <p>
+          写真の読み込み・表示・移動はすべて Mac の中で行います。<br>通信するのは、新しい版があるかを確かめるときだけです。
+        </p>
+        <p>
+          判定は開いたフォルダの <code>.jpphotopicker.json</code> に自動で保存します。<br>途中でやめても、次に開けば判定と最後に見ていたコマが戻ります。
+        </p>
+      </div>
+      <ul class="facts">
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>写真は削除しません。<code>_rejected/</code> フォルダへ移すだけです</span></li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>ペアの JPG が無い ARW も、埋め込みプレビューと RAW 現像で表示します</span></li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>Apple の公証を受けています。ソースは GitHub で公開しています（MIT）</span></li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>更新は Sparkle 経由です。配信物は EdDSA 署名で検証されます</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 末尾 -->
+  <section>
+    <div class="close">
+      <img src="icon.png" alt="">
+      <h2><span class="nb">次の撮影から、</span><span class="nb">選別を速く。</span></h2>
+      <p>ダウンロードして、写真のフォルダをウインドウにドロップするだけです。</p>
+      <div class="actions">
+        <a class="btn btn--primary" href="https://github.com/Junpeiwada/JPPhotoPicker/releases/latest">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"></path><path d="m7 11 5 5 5-5"></path><path d="M4 20h16"></path></svg>
+          最新版をダウンロード
+        </a>
+        <a class="btn btn--ghost" href="https://github.com/Junpeiwada/JPPhotoPicker/releases">これまでのリリース</a>
+      </div>
+      <p class="meta"><span>macOS 26 以降</span><span>アプリ内で自動更新</span></p>
+    </div>
+  </section>
+
+  <footer>
+    <span>JPPhotoPicker</span>
+    <span class="spacer"></span>
+    <a href="https://github.com/Junpeiwada/JPPhotoPicker">GitHub</a>
+    <a href="https://github.com/Junpeiwada/JPPhotoPicker/releases">リリース</a>
+    <a href="https://github.com/Junpeiwada/JPPhotoPicker/issues">不具合を報告</a>
+  </footer>
+
+</div>
+</body>
+</html>
