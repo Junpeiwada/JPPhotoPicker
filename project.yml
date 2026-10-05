@@ -11,6 +11,10 @@ options:
 packages:
   JPPhotoPickerCore:
     path: Packages/JPPhotoPickerCore
+  # アプリ内の自動更新。GitHub Pages の appcast を見て更新する。
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: "2.9.3"
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -24,18 +28,38 @@ targets:
       - path: App
     dependencies:
       - package: JPPhotoPickerCore
+      - package: Sparkle
+        product: Sparkle
+    # Sparkle のキー（SUFeedURL / SUPublicEDKey）は INFOPLIST_KEY_* では入れられないため、
+    # Info.plist を XcodeGen で生成する。値を変えるときはこちらを直して再生成する。
+    info:
+      path: JPPhotoPicker-Info.plist
+      properties:
+        CFBundleDisplayName: JPPhotoPicker
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
+        LSApplicationCategoryType: public.app-category.photography
+        NSHumanReadableCopyright: ""
+        # Sparkle: 更新フィード（GitHub Pages に置く appcast）
+        SUFeedURL: "https://junpeiwada.github.io/JPPhotoPicker/appcast.xml"
+        # Sparkle: appcast の署名を検証する EdDSA 公開鍵。秘密鍵はキーチェーン（generate_keys --account JPPhotoPicker）と Secret SPARKLE_PRIVATE_KEY
+        SUPublicEDKey: "QDpEPkPk7fUWXkpYaAIHZ//hserRslv5hyXdw/jr/kw="
+        # 自動確認を既定で有効にする（初回の「自動で確認しますか？」を出さない）。
+        # 起動のたびの確認は UpdaterController が明示的に行う
+        SUEnableAutomaticChecks: true
+        SUScheduledCheckInterval: 86400
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.junpeiwada.JPPhotoPicker
         PRODUCT_NAME: JPPhotoPicker
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: JPPhotoPicker
-        INFOPLIST_KEY_NSHumanReadableCopyright: ""
-        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.photography
-        CODE_SIGN_STYLE: Automatic
-        CODE_SIGN_IDENTITY: "-"
+        # 開発用の署名 ID を固定する。配布版は CI が Developer ID で署名し直す
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "Apple Development"
+        DEVELOPMENT_TEAM: L897K2C26B
         ENABLE_APP_SANDBOX: NO
-        ENABLE_HARDENED_RUNTIME: NO
+        # 公証に必要
+        ENABLE_HARDENED_RUNTIME: YES
         EXTRACT_APP_INTENTS_METADATA: NO
         CURRENT_PROJECT_VERSION: 1
         MARKETING_VERSION: "0.1.0"

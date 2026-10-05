@@ -5,10 +5,12 @@ import JPPhotoPickerCore
 struct JPPhotoPickerApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model: BrowserModel
+    @State private var updater: UpdaterController
 
     init() {
         let m = BrowserModel()
         _model = State(initialValue: m)
+        _updater = State(initialValue: UpdaterController(model: m))
         AppDelegate.model = m   // 終了時の確認（実行中の適用・取り消し）から参照する
     }
 
@@ -24,10 +26,14 @@ struct JPPhotoPickerApp: App {
                 }
         }
         .defaultSize(width: 1280, height: 860)
-        .commands { BrowserCommands() }
+        .commands {
+            BrowserCommands()
+            UpdateCommands(updater: updater)
+        }
 
         Settings {
             SettingsView()
+                .environment(updater)
         }
     }
 }

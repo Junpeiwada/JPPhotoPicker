@@ -24,6 +24,7 @@ enum PreferenceKey {
 /// 設定画面（⌘,）
 struct SettingsView: View {
     @AppStorage(PreferenceKey.prefetchCount) private var prefetchCount = PreferenceKey.defaultPrefetchCount
+    @Environment(UpdaterController.self) private var updater
 
     var body: some View {
         Form {
@@ -37,8 +38,25 @@ struct SettingsView: View {
             } footer: {
                 Text("大プレビューと全体表示用の画像を、今のコマの前後それぞれ何枚先読みするかを指定します。増やすとコマ送りが速くなりますが、メモリを多く使います。全体表示用の画像は、メモリの上限に収まる枚数までに絞ります（ARW だけのコマは前後 1 枚まで）。")
             }
+
+            Section {
+                Toggle("起動時に更新を確認する", isOn: Bindable(updater).automaticallyChecksForUpdates)
+                LabeledContent("最後に確認した日時") {
+                    if let date = updater.lastUpdateCheckDate {
+                        Text(date, format: .dateTime.year().month().day().hour().minute())
+                    } else {
+                        Text("未確認")
+                    }
+                }
+                Button("今すぐ確認…") { updater.checkForUpdates() }
+            } header: {
+                Text("アップデート")
+            } footer: {
+                Text("新しい版があると、ダイアログでお知らせします。アプリメニューの「アップデートを確認…」からも確認できます。")
+            }
         }
         .formStyle(.grouped)
+        .onAppear { updater.refresh() }
         .frame(width: 440)
         .fixedSize(horizontal: false, vertical: true)
     }
