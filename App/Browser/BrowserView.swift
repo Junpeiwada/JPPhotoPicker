@@ -33,33 +33,6 @@ struct BrowserView: View {
                 }
             }
             .navigationTitle(model.folderName ?? "JPPhotoPicker")
-            .navigationSubtitle(model.progressText)
-            .toolbar {
-                ToolbarItem(placement: .navigation) {
-                    Button { model.chooseFolder() } label: {
-                        Label("フォルダを開く", systemImage: "folder")
-                    }
-                    .disabled(!model.isInteractive)
-                    .help("フォルダを開く（⌘O）")
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button { model.requestApply() } label: {
-                        Label("適用", systemImage: "tray.and.arrow.down")
-                            .labelStyle(.titleAndIcon)
-                    }
-                    .disabled(!model.canApply || model.isModalPresented)
-                    .help(model.applyDisabledReason
-                          ?? "採用の印が無いコマを _rejected に移します")
-                }
-                // 右端: 情報パネルの切り替え
-                ToolbarItem(placement: .primaryAction) {
-                    Toggle(isOn: $model.showInfo) {
-                        Label("情報", systemImage: "info.circle")
-                    }
-                    .disabled(!model.hasEntries)
-                    .help("撮影情報（EXIF）を表示します（I）")
-                }
-            }
             .focusedSceneValue(\.browserModel, model)
             // 適用・取り消しの実行中はウインドウを閉じさせない
             .background { WindowCloseGuard(model: model) }

@@ -10,14 +10,6 @@ struct PreviewView: View {
     private static let background = Color(white: 0.08)
 
     var body: some View {
-        // 外側の GeometryReader は安全領域を守るので、ここでツールバー（タイトルバー）の高さが取れる。
-        // 内側は ignoresSafeArea で上端まで広げるため、内側の safeAreaInsets は 0 になる。
-        GeometryReader { outer in
-            preview(topInset: outer.safeAreaInsets.top)
-        }
-    }
-
-    private func preview(topInset: CGFloat) -> some View {
         GeometryReader { proxy in
             ZStack {
                 Self.background
@@ -28,7 +20,6 @@ struct PreviewView: View {
                         image: model.displayImage,
                         imageRect: model.geometry.imageRect,
                         isZoomed: !model.zoom.isFit,
-                        titlebarHeight: topInset,
                         onClick: { model.click(atViewPoint: $0) },
                         onPan: { model.pan(contentDelta: $0) },
                         onPinch: { phase, magnification, point in
@@ -48,39 +39,26 @@ struct PreviewView: View {
                     FocusFrameOverlay(focus: model.currentFocus, geometry: model.geometry)
                 }
 
-                // 拡大中は写真がツールバーの下まで来るので、タイトル・進捗が読めるよう上端に控えめな黒を重ねる
-                if !model.zoom.isFit, topInset > 0 {
-                    VStack(spacing: 0) {
-                        LinearGradient(colors: [.black.opacity(0.4), .black.opacity(0)],
-                                       startPoint: .top, endPoint: .bottom)
-                            .frame(height: topInset)
-                        Spacer(minLength: 0)
-                    }
-                    .allowsHitTesting(false)
-                }
-
-                overlays(topInset: topInset)
+                overlays
             }
             .clipped()
-            // 全体表示は安全領域（ツールバーの下）の内側に収める。拡大中はツールバーの下まで描く。
-            // ビューの大きさ・上端の空きはモデルへ渡し、クリック・ピンチの座標変換も同じ値で行う。
+            // ビューの大きさはモデルへ渡し、クリック・ピンチの座標変換も同じ値で行う
             .onChange(of: proxy.size, initial: true) { _, size in
-                model.viewportChanged(size: size, scale: displayScale, topInset: topInset)
-            }
-            .onChange(of: topInset) { _, inset in
-                model.viewportChanged(size: proxy.size, scale: displayScale, topInset: inset)
+                model.viewportChanged(size: size, scale: displayScale)
             }
             .onChange(of: displayScale) { _, scale in
-                model.viewportChanged(size: proxy.size, scale: scale, topInset: topInset)
+                model.viewportChanged(size: proxy.size, scale: scale)
             }
         }
-        // 写真をツールバー（Liquid Glass）の下まで回り込ませる（全体表示の配置だけは上端を空ける）
-        .ignoresSafeArea(edges: .top)
     }
 
-    private func overlays(topInset: CGFloat) -> some View {
+    private var overlays: some View {
         HStack(alignment: .bottom) {
             VStack(alignment: .leading) {
+                if !model.progressText.isEmpty {
+                    badge { Text(model.progressText).monospacedDigit() }
+                        .font(.callout.weight(.medium))
+                }
                 if model.currentItem?.kind == .arwOnly {
                     badge { Text("ARW").font(.caption.weight(.semibold)) }
                         .accessibilityLabel("ARW だけのファイル")
@@ -94,19 +72,30 @@ struct PreviewView: View {
                 GlassEffectContainer(spacing: 8) { statusBadges }
             }
             Spacer()
-            // 右カラム: 判定・拡大のボタン
+            // 右カラム: 上端に適用、下端に判定・拡大のボタン
             VStack(alignment: .trailing, spacing: 12) {
+                applyButton
                 Spacer()
                 GlassEffectContainer(spacing: 8) { zoomControls }
             }
         }
         .padding(14)
-        .padding(.top, topInset)
         // 上端の中央（左上のバッジと同じ高さ）
         .overlay(alignment: .top) {
             loadingBadge
-                .padding(.top, 14 + topInset)
+                .padding(.top, 14)
         }
+    }
+
+    /// 採用していないコマを _rejected に移す（確認ダイアログを出す）
+    private var applyButton: some View {
+        Button { model.requestApply() } label: {
+            Label("適用", systemImage: "tray.and.arrow.down")
+        }
+        .buttonStyle(.glass)
+        .font(.callout.weight(.medium))
+        .disabled(!model.canApply || model.isModalPresented)
+        .help(model.applyDisabledReason ?? "採用の印が無いコマを _rejected に移します（⇧⌘A）")
     }
 
     /// 最高画質（全体表示は画面の画素数に縮小した本体、拡大は本体）ができるまでは仮の画像なので、

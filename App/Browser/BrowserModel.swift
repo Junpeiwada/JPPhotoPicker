@@ -59,8 +59,6 @@ final class BrowserModel {
     var viewSize: CGSize = .zero
     /// PreviewView が更新する（Retina は 2）
     var backingScale: Double = 2
-    /// PreviewView が更新する。ツールバーの高さ（ポイント）。全体表示はこの下に収める
-    private(set) var topInset: CGFloat = 0
     private(set) var currentFocus: FocusGeometry = .centered
     /// 大プレビュー（未読み込みの間はサムネイル）
     private(set) var displayPreview: PipelineImage?
@@ -78,7 +76,7 @@ final class BrowserModel {
     var showFocusFrame: Bool {
         didSet { UserDefaults.standard.set(showFocusFrame, forKey: PreferenceKey.showFocusFrame) }
     }
-    /// 情報パネル（EXIF）を表示するか。I キー・ツールバーのボタンで切り替える
+    /// 情報パネル（EXIF）を表示するか。I キー・メニューで切り替える
     var showInfo: Bool {
         didSet { UserDefaults.standard.set(showInfo, forKey: PreferenceKey.showInfo) }
     }
@@ -234,7 +232,7 @@ final class BrowserModel {
 
     /// 全体表示用の画像の長辺（画素）。ビューの大きさが決まるまでは 0
     private var screenMaxPixel: Int {
-        ScreenResolution.maxPixel(viewSize: viewSize, topInset: topInset, backingScale: backingScale)
+        ScreenResolution.maxPixel(viewSize: viewSize, topInset: 0, backingScale: backingScale)
     }
 
     private var screenKind: ImageKind? {
@@ -266,13 +264,11 @@ final class BrowserModel {
     }
 
     private func viewport(for item: PhotoItem) -> ZoomViewport {
-        ZoomViewport(viewSize: viewSize, imagePixelSize: pixelSize(of: item), backingScale: backingScale,
-                     fitTopInset: topInset)
+        ZoomViewport(viewSize: viewSize, imagePixelSize: pixelSize(of: item), backingScale: backingScale)
     }
 
     var geometry: ViewportGeometry {
-        ViewportGeometry(viewSize: viewSize, imagePixelSize: currentPixelSize, backingScale: backingScale, zoom: zoom,
-                         topInset: topInset)
+        ViewportGeometry(viewSize: viewSize, imagePixelSize: currentPixelSize, backingScale: backingScale, zoom: zoom)
     }
 
     private var prefetchCount: Int {
@@ -815,12 +811,10 @@ final class BrowserModel {
     func endPinch() { pinchStartScale = nil }
 
     /// PreviewView から大きさ・倍率（displayScale）が変わったとき
-    /// `topInset` はツールバーの高さ。全体表示はその下に収める
-    func viewportChanged(size: CGSize, scale: Double, topInset: CGFloat) {
+    func viewportChanged(size: CGSize, scale: Double) {
         let oldMaxPixel = screenMaxPixel
         viewSize = size
         backingScale = scale
-        self.topInset = topInset
         reclamp()
         if screenMaxPixel != oldMaxPixel { scheduleScreenRefresh(previousMaxPixel: oldMaxPixel) }
     }
