@@ -184,7 +184,7 @@ struct PreviewView: View {
             .contentShape(.capsule)
         }
         .buttonStyle(.plain)
-        .help("採用にします。もう一度押すと採用を外します（P）")
+        .help("採用にします。もう一度押すと採用を外します（P / スペース）")
         .accessibilityAddTraits(selected ? .isSelected : [])
         .padding(3)
         .glassEffect(.regular, in: .capsule)

@@ -36,7 +36,19 @@ struct BrowserView: View {
             .focusedSceneValue(\.browserModel, model)
             // 適用・取り消しの実行中はウインドウを閉じさせない
             .background { WindowCloseGuard(model: model) }
+            .background { spaceToPick }
             .preferredColorScheme(.dark)
+    }
+
+    /// スペースでも採用を切り替える（P と同じ）。メニュー項目のショートカットは1つしか付けられないので、
+    /// 見えないボタンで受ける。`.hidden()` にするとショートカットが効かなくなるため透明・大きさ0にする
+    private var spaceToPick: some View {
+        Button("採用") { model.togglePick() }
+            .keyboardShortcut(.space, modifiers: [])
+            .disabled(!model.hasEntries || !model.isInteractive)
+            .opacity(0)
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
     }
 
     @ViewBuilder
