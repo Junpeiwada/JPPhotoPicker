@@ -49,6 +49,17 @@ targets:
         # 起動のたびの確認は UpdaterController が明示的に行う
         SUEnableAutomaticChecks: true
         SUScheduledCheckInterval: 86400
+        # Finder でフォルダを右クリックしたときの「JPPhotoPicker で開く」。受け口は App/FinderService.swift。
+        # 表記は App/Resources/*.lproj/ServicesMenu.strings で日本語に切り替える（default は英語）
+        NSServices:
+          - NSMenuItem:
+              default: Open in JPPhotoPicker
+            NSMessage: openFolder
+            NSPortName: JPPhotoPicker
+            NSRequiredContext:
+              NSApplicationIdentifier: com.apple.finder
+            NSSendFileTypes:
+              - public.folder
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.junpeiwada.JPPhotoPicker
