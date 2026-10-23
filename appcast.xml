@@ -3,12 +3,12 @@
     <channel>
         <title>JPPhotoPicker</title>
         <item>
-            <title>0.1.3</title>
-            <pubDate>Thu, 15 Oct 2026 08:27:37 +0000</pubDate>
-            <sparkle:version>3</sparkle:version>
-            <sparkle:shortVersionString>0.1.3</sparkle:shortVersionString>
+            <title>0.1.4</title>
+            <pubDate>Fri, 23 Oct 2026 13:55:27 +0000</pubDate>
+            <sparkle:version>4</sparkle:version>
+            <sparkle:shortVersionString>0.1.4</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/Junpeiwada/JPPhotoPicker/releases/download/v0.1.3/JPPhotoPicker-0.1.3.zip" length="3656917" type="application/octet-stream" sparkle:edSignature="ajkvAoHWiuGrNfNqc17PyiR3xo4CR0OCgDrPQdfAGbAU4Xgp6glIcmiyrfeVYFyh4UDeigXe9EMcpLST1V3WCg=="/>
+            <enclosure url="https://github.com/Junpeiwada/JPPhotoPicker/releases/download/v0.1.4/JPPhotoPicker-0.1.4.zip" length="3662815" type="application/octet-stream" sparkle:edSignature="M9HSny2BzS/TVnaz4576/m9kOIAdM7KRWPc1AlkLS2lOH76PZz19Oos3cSN2HpILZ8ArWcPI62ONqjgcvfMYCA=="/>
         </item>
     </channel>
 </rss>
