@@ -16,7 +16,9 @@ struct TIFFReader: Sendable {
     let base: Int
     let littleEndian: Bool
 
-    init?(data: [UInt8], base: Int) {
+    /// - Parameter magics: ヘッダーの 3〜4 バイト目として受け付ける値。通常の TIFF は 42。
+    ///   ORF は 0x4F52（"RO"）・0x5352（"RS"、古い機種）で始まる
+    init?(data: [UInt8], base: Int, magics: Set<Int> = [42]) {
         guard base >= 0, base + 8 <= data.count else { return nil }
         let a = data[base], b = data[base + 1]
         if a == 0x49 && b == 0x49 {
@@ -28,8 +30,19 @@ struct TIFFReader: Sendable {
         }
         self.data = data
         self.base = base
-        guard u16(base + 2) == 42 else { return nil }
+        guard let magic = u16(base + 2), magics.contains(magic) else { return nil }
     }
+
+    /// ヘッダーを確かめずに、オフセットの基準とバイト順を指定して作る（Olympus MakerNote 用。
+    /// 値のオフセットは MakerNote の先頭基準で、バイト順はヘッダーの途中に書かれている）
+    init(data: [UInt8], base: Int, littleEndian: Bool) {
+        self.data = data
+        self.base = base
+        self.littleEndian = littleEndian
+    }
+
+    /// ORF のヘッダーとして受け付けるマジック番号（通常の TIFF も含む）
+    static let rawMagics: Set<Int> = [42, 0x4F52, 0x5352]
 
     func u16(_ i: Int) -> Int? {
         guard i >= 0, i + 2 <= data.count else { return nil }
@@ -103,6 +116,23 @@ struct TIFFReader: Sendable {
         return end
     }
 
+    /// 絶対添字 `ifd` にある IFD から `tag` のエントリを、値がバッファ外でも返す（値の先頭位置だけ分かればよいとき用。
+    /// ORF の MakerNote は埋め込みプレビューを含んで 1.5MB ほどあり、全体を読むと遅いため）
+    func entryAllowingOutOfBuffer(ofIFDAtAbsolute ifd: Int, tag wanted: Int) -> IFDEntry? {
+        guard let n = u16(ifd), n < 2000 else { return nil }
+        for k in 0..<n {
+            let pos = ifd + 2 + k * 12
+            guard let tag = u16(pos), let type = u16(pos + 2), let count = u32(pos + 4) else { return nil }
+            guard tag == wanted else { continue }
+            let bytes = Self.typeSize(type) * count
+            guard Self.typeSize(type) > 0 else { return nil }
+            if bytes <= 4 { return IFDEntry(tag: tag, type: type, count: count, valueIndex: pos + 8) }
+            guard let off = u32(pos + 8) else { return nil }
+            return IFDEntry(tag: tag, type: type, count: count, valueIndex: base + off)
+        }
+        return nil
+    }
+
     /// TIFF ヘッダー基準のオフセットで IFD を読む
     func readIFD(atOffset off: Int) -> (entries: [IFDEntry], next: Int?)? {
         readIFD(atAbsolute: base + off)
@@ -137,6 +167,22 @@ struct TIFFReader: Sendable {
     }
 
     func firstInt(_ e: IFDEntry) -> Int? { ints(e, limit: 1).first }
+
+    /// 有理数（rational / srational）の分子・分母を最大 `limit` 組読む
+    func rationals(_ e: IFDEntry, limit: Int = 16) -> [(num: Int, den: Int)] {
+        guard e.type == 5 || e.type == 10 else { return [] }
+        let n = min(e.count, limit)
+        var out: [(num: Int, den: Int)] = []
+        for k in 0..<n {
+            guard var num = u32(e.valueIndex + k * 8), var den = u32(e.valueIndex + k * 8 + 4) else { return out }
+            if e.type == 10 {
+                if num >= 0x8000_0000 { num -= 0x1_0000_0000 }
+                if den >= 0x8000_0000 { den -= 0x1_0000_0000 }
+            }
+            out.append((num, den))
+        }
+        return out
+    }
 
     /// ASCII 文字列（NUL・末尾の空白で切る）
     func string(_ e: IFDEntry) -> String? {

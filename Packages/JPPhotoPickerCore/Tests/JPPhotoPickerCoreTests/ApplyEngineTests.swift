@@ -35,7 +35,7 @@ struct ApplyEngineTests {
         touch(dir, ["A1_0001.JPG", "A1_0001.ARW", "A1_0002.JPG", "A1_0003.ARW", "A1_0004.JPG", "A1_0004.arw"])
         let p = try plan(dir, rejecting: ["A1_0001.JPG", "A1_0002.JPG", "A1_0003.ARW"])
         #expect(p.jpgCount == 2)
-        #expect(p.arwCount == 2)
+        #expect(p.rawCount == 2)
         #expect(p.files.count == 4)
         #expect(!p.isEmpty)
         #expect(try plan(dir, rejecting: []).isEmpty)
@@ -50,7 +50,7 @@ struct ApplyEngineTests {
         let r = ApplyEngine(folder: dir).apply(p)
         #expect(r.failures.isEmpty)
         #expect(r.movedJPGCount == 1)
-        #expect(r.movedARWCount == 2)
+        #expect(r.movedRAWCount == 2)
         #expect(has(dir, "_rejected/A1_0001.JPG"))
         #expect(has(dir, "_rejected/A1_0001.arw"))
         #expect(has(dir, "_rejected/A1_0003.ARW"))
@@ -62,12 +62,12 @@ struct ApplyEngineTests {
     }
 
     @Test("ARW だけのコマを不採用にすると ARW だけが移る")
-    func arwOnly() throws {
+    func rawOnly() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         touch(dir, ["A1_0001.ARW", "A1_0002.JPG"])
         let r = ApplyEngine(folder: dir).apply(try plan(dir, rejecting: ["A1_0001.ARW"]))
-        #expect(r.movedJPGCount == 0 && r.movedARWCount == 1)
+        #expect(r.movedJPGCount == 0 && r.movedRAWCount == 1)
         #expect(has(dir, "_rejected/A1_0001.ARW") && has(dir, "A1_0002.JPG"))
     }
 
@@ -81,7 +81,7 @@ struct ApplyEngineTests {
         let r = ApplyEngine(folder: dir).apply(try plan(dir, rejecting: ["A1_0001.JPG"]))
         #expect(Set(r.failures.map(\.path)) == ["A1_0001.JPG", "A1_0001.ARW"])
         #expect(r.failures.first { $0.path == "A1_0001.ARW" }?.reason == "ペアの JPG を移せなかったため ARW も移しませんでした")
-        #expect(r.movedARWCount == 0 && r.movedJPGCount == 0 && r.record == nil)
+        #expect(r.movedRAWCount == 0 && r.movedJPGCount == 0 && r.record == nil)
         #expect(has(dir, "A1_0001.JPG") && has(dir, "A1_0001.ARW") && !has(dir, "_rejected/A1_0001.ARW"))
         #expect(try Data(contentsOf: dir.appendingPathComponent("_rejected/A1_0001.JPG")) == Data([9, 9, 9]))
     }
@@ -111,6 +111,26 @@ struct ApplyEngineTests {
         #expect(r.failures.count == 2)
     }
 
+    @Test("ORF のペアもそろって移し、失敗の理由には ORF と書く")
+    func orfPair() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        touch(dir, ["PA290001.JPG", "PA290001.ORF", "PA290002.JPG", "PA290002.ORF"])
+        struct Boom: Error, LocalizedError { var errorDescription: String? { "失敗" } }
+        var engine = ApplyEngine(folder: dir)
+        engine.mover = { from, to in
+            if from.lastPathComponent == "PA290001.ORF" { throw Boom() }
+            try FileManager.default.moveItem(at: from, to: to)
+        }
+        let p = try plan(dir, rejecting: ["PA290001.JPG", "PA290002.JPG"])
+        #expect(p.jpgCount == 2 && p.rawCount == 2)
+        let r = engine.apply(p)
+        #expect(has(dir, "PA290001.JPG") && has(dir, "PA290001.ORF"))
+        #expect(has(dir, "_rejected/PA290002.JPG") && has(dir, "_rejected/PA290002.ORF"))
+        #expect(r.failures.first { $0.path == "PA290001.JPG" }?.reason == "ペアの ORF を移せなかったため JPG も移しませんでした")
+        #expect(r.movedJPGCount == 1 && r.movedRAWCount == 1)
+    }
+
     @Test("2 つ目の移動が失敗したら 1 つ目を元に戻し、ペアごと失敗にする")
     func secondMoveFailsRollsBack() throws {
         let dir = try makeTempDir()
@@ -127,7 +147,7 @@ struct ApplyEngineTests {
         #expect(has(dir, "_rejected/A1_0002.JPG") && has(dir, "_rejected/A1_0002.ARW"))
         #expect(r.failures.first { $0.path == "A1_0001.JPG" }?.reason == "ペアの ARW を移せなかったため JPG も移しませんでした")
         #expect(r.failures.first { $0.path == "A1_0001.ARW" }?.reason == "失敗")
-        #expect(r.movedJPGCount == 1 && r.movedARWCount == 1)
+        #expect(r.movedJPGCount == 1 && r.movedRAWCount == 1)
         #expect(Set(r.record?.moves.map(\.from) ?? []) == ["A1_0002.JPG", "A1_0002.ARW"])
     }
 
@@ -159,7 +179,7 @@ struct ApplyEngineTests {
         let r = engine.apply(try plan(dir, rejecting: ["A1_0001.JPG"]))
         #expect(!has(dir, "A1_0001.JPG") && has(dir, "_rejected/A1_0001.JPG") && has(dir, "A1_0001.ARW"))
         #expect(r.record?.moves.map(\.from) == ["A1_0001.JPG"])
-        #expect(r.movedJPGCount == 1 && r.movedARWCount == 0)
+        #expect(r.movedJPGCount == 1 && r.movedRAWCount == 0)
         #expect(r.failures.first { $0.path == "A1_0001.JPG" }?.reason.contains("元に戻せませんでした") == true)
         // ジャーナルも記録と一致し、取り消しで戻せる
         guard case .recovered(let rec) = ApplyEngine(folder: dir).recoverJournal() else { Issue.record("recovered ではない"); return }
@@ -499,9 +519,9 @@ struct ApplyEngineTests {
         try FileManager.default.createDirectory(at: dir.appendingPathComponent("sub"), withIntermediateDirectories: true)
         touch(dir, ["sub/deep.JPG"])
         let p = ApplyPlan(candidates: [
-            MoveCandidate(id: "evil.JPG", jpgURL: other.appendingPathComponent("evil.JPG"), arwURL: nil),
-            MoveCandidate(id: "deep.JPG", jpgURL: dir.appendingPathComponent("sub/deep.JPG"), arwURL: nil),
-            MoveCandidate(id: "A1_0001.JPG", jpgURL: dir.appendingPathComponent("A1_0001.JPG"), arwURL: nil),
+            MoveCandidate(id: "evil.JPG", jpgURL: other.appendingPathComponent("evil.JPG"), rawURL: nil),
+            MoveCandidate(id: "deep.JPG", jpgURL: dir.appendingPathComponent("sub/deep.JPG"), rawURL: nil),
+            MoveCandidate(id: "A1_0001.JPG", jpgURL: dir.appendingPathComponent("A1_0001.JPG"), rawURL: nil),
         ])
         let r = ApplyEngine(folder: dir).apply(p)
         #expect(r.failures.map(\.path) == ["evil.JPG", "deep.JPG"])

@@ -1,21 +1,21 @@
 import Foundation
 
-/// 種類: JPG と ARW のペア / JPG だけ / ARW だけ
+/// 種類: JPG と RAW（ARW / ORF）のペア / JPG だけ / RAW だけ
 public enum PhotoKind: String, Sendable, Codable, Hashable {
     case pair
     case jpgOnly
-    case arwOnly
+    case rawOnly
 }
 
-/// 1 コマ（フォルダ内の 1 つの写真。JPG+ARW ペアなら 1 コマ）
+/// 1 コマ（フォルダ内の 1 つの写真。JPG+RAW ペアなら 1 コマ）
 public struct PhotoItem: Sendable, Identifiable, Hashable {
-    /// コマ ID = 表示に使うファイル名（JPG があれば JPG、無ければ ARW）。判定の保存キーにもなる
+    /// コマ ID = 表示に使うファイル名（JPG があれば JPG、無ければ RAW）。判定の保存キーにもなる
     public let id: String
     /// 拡張子を除いたファイル名
     public let baseName: String
     public let kind: PhotoKind
     public let jpgURL: URL?
-    public let arwURL: URL?
+    public let rawURL: URL?
     /// ファイル名の末尾の数字列（例: A1_07866 → 7866）。取れなければ nil
     public let fileNumber: Int?
     /// ファイル名（拡張子なし）の末尾の数字列を除いた部分（例: A1_07866 → "A1_"）。連写グループの同一判定に使う
@@ -23,24 +23,27 @@ public struct PhotoItem: Sendable, Identifiable, Hashable {
     /// メタデータ（未読み取り・読めなかったときは nil）
     public var metadata: PhotoMetadata?
 
-    /// `jpgURL` と `arwURL` の少なくとも一方は非 nil でなければならない（両方 nil は precondition 違反）。
-    public init(baseName: String, jpgURL: URL?, arwURL: URL?, metadata: PhotoMetadata? = nil) {
-        precondition(jpgURL != nil || arwURL != nil, "PhotoItem には JPG か ARW のどちらかが必要です")
+    /// `jpgURL` と `rawURL` の少なくとも一方は非 nil でなければならない（両方 nil は precondition 違反）。
+    public init(baseName: String, jpgURL: URL?, rawURL: URL?, metadata: PhotoMetadata? = nil) {
+        precondition(jpgURL != nil || rawURL != nil, "PhotoItem には JPG か RAW のどちらかが必要です")
         self.baseName = baseName
         self.jpgURL = jpgURL
-        self.arwURL = arwURL
-        self.kind = jpgURL != nil ? (arwURL != nil ? .pair : .jpgOnly) : .arwOnly
-        self.id = (jpgURL ?? arwURL)?.lastPathComponent ?? baseName
+        self.rawURL = rawURL
+        self.kind = jpgURL != nil ? (rawURL != nil ? .pair : .jpgOnly) : .rawOnly
+        self.id = (jpgURL ?? rawURL)?.lastPathComponent ?? baseName
         self.fileNumber = Self.trailingNumber(of: baseName)
         self.namePrefix = Self.prefixBeforeTrailingDigits(of: baseName)
         self.metadata = metadata
     }
 
     /// 表示・メタデータ読み取りに使う主ファイル（JPG があれば JPG）
-    public var primaryURL: URL { jpgURL ?? arwURL! }
+    public var primaryURL: URL { jpgURL ?? rawURL! }
 
-    /// 適用時に移す対象のファイル（JPG、ARW の順）
-    public var allURLs: [URL] { [jpgURL, arwURL].compactMap { $0 } }
+    /// 適用時に移す対象のファイル（JPG、RAW の順）
+    public var allURLs: [URL] { [jpgURL, rawURL].compactMap { $0 } }
+
+    /// RAW の拡張子を大文字にしたもの（"ARW" / "ORF"）。バッジ・読み上げに使う。RAW が無ければ nil
+    public var rawExtension: String? { rawURL?.pathExtension.uppercased() }
 
     static func prefixBeforeTrailingDigits(of name: String) -> String {
         var end = name.endIndex
@@ -63,7 +66,7 @@ public struct PhotoItem: Sendable, Identifiable, Hashable {
 }
 
 public enum FolderScanner {
-    /// フォルダ直下だけを走査し、JPG/ARW をベース名（大文字小文字を区別しない）で対応付ける。
+    /// フォルダ直下だけを走査し、JPG/RAW（ARW・ORF）をベース名（大文字小文字を区別しない）で対応付ける。
     /// 隠しファイル、サブフォルダ（`_rejected` を含む）は対象外。結果はファイル名順。
     /// メタデータは読まない（`metadata == nil`）。
     public static func scan(folder: URL) throws -> [PhotoItem] {
@@ -73,7 +76,7 @@ public enum FolderScanner {
             options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants])
 
         var jpgs: [String: URL] = [:]
-        var arws: [String: URL] = [:]
+        var raws: [String: URL] = [:]
         var names: [String: String] = [:]   // key → JPG 優先の表示用ベース名
         for url in urls.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
             guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
@@ -85,27 +88,27 @@ public enum FolderScanner {
             switch ext {
             case "jpg", "jpeg":
                 if jpgs[key] == nil { jpgs[key] = url; names[key] = base }
-            case "arw":
-                if arws[key] == nil { arws[key] = url; if names[key] == nil { names[key] = base } }
+            case "arw", "orf":
+                if raws[key] == nil { raws[key] = url; if names[key] == nil { names[key] = base } }
             default:
                 continue
             }
         }
 
-        let keys = Set(jpgs.keys).union(arws.keys)
+        let keys = Set(jpgs.keys).union(raws.keys)
         return keys
-            .map { PhotoItem(baseName: names[$0] ?? $0, jpgURL: jpgs[$0], arwURL: arws[$0]) }
+            .map { PhotoItem(baseName: names[$0] ?? $0, jpgURL: jpgs[$0], rawURL: raws[$0]) }
             .sorted { $0.id.compare($1.id, options: [.numeric, .caseInsensitive]) == .orderedAscending }
     }
 }
 
 public enum PhotoMetadataLoader {
-    /// 既定の読み取り: JPG（ペア含む）は `JPEGMetadataReader`、ARW だけは `ARWMetadataReader`
+    /// 既定の読み取り: JPG（ペア含む）は `JPEGMetadataReader`、RAW だけは `RAWMetadataReader`
     @Sendable
     public static func defaultReader(_ item: PhotoItem) -> PhotoMetadata? {
         if let jpg = item.jpgURL { return try? JPEGMetadataReader.read(url: jpg) }
-        guard let arw = item.arwURL else { return nil }
-        return try? ARWMetadataReader.read(url: arw)
+        guard let raw = item.rawURL else { return nil }
+        return try? RAWMetadataReader.read(url: raw)
     }
 
     /// 全コマのメタデータを並列に読み、`metadata` を埋めた配列（順序は入力と同じ）を返す。

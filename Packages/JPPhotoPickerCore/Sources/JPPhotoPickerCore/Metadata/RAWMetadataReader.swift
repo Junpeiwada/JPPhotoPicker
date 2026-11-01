@@ -1,8 +1,8 @@
 import Foundation
 
-/// Sony ARW（TIFF 構造）の先頭だけを読み、Exif / Sony MakerNote / 埋め込みプレビューの位置を取り出す。
+/// RAW（Sony ARW / Olympus ORF。どちらも TIFF 構造）の先頭だけを読み、Exif / MakerNote / 埋め込みプレビューの位置を取り出す。
 /// 実機サンプルで確認できていないタグは、読めなければ nil として扱い、例外では落とさない。
-public enum ARWMetadataReader {
+public enum RAWMetadataReader {
     /// 最初に読むバイト数
     static let initialReadSize = 256 * 1024
     /// これ以上は読まない
@@ -65,7 +65,7 @@ public enum ARWMetadataReader {
 
     /// 解析結果と、ExifIFD・日時・MakerNote をすべて読むのに必要なバイト数（先頭から）を返す
     static func parseDetailed(bytes: [UInt8], fileSize: Int? = nil) -> (metadata: PhotoMetadata, neededEnd: Int)? {
-        guard let tiff = TIFFReader(data: bytes, base: 0),
+        guard let tiff = TIFFReader(data: bytes, base: 0, magics: TIFFReader.rawMagics),
               let ifd0Off = tiff.firstIFDOffset,
               let (ifd0, next) = tiff.readIFD(atOffset: ifd0Off) else { return nil }
 
@@ -91,8 +91,20 @@ public enum ARWMetadataReader {
 
         guard let pe = ifd0.entry(0x8769), let exifOff = tiff.firstInt(pe) else { return (m, 0) }
         // ExifIFD のエントリ数すら読めないときは、ExifIFD の先頭から 64KB を読めば足りるとみなす
-        guard var needed = tiff.neededEnd(ofIFDAtAbsolute: exifOff, tags: [0x9003, 0x9011, 0x9291, 0x927C]) else {
+        guard var needed = tiff.neededEnd(ofIFDAtAbsolute: exifOff, tags: [0x9003, 0x9011, 0x9291]) else {
             return (m, exifOff + 64 * 1024)
+        }
+        // MakerNote: Olympus は埋め込みプレビューを含んで 1.5MB ほどあるので、必要なサブ IFD までだけ読む。
+        // Sony は MakerNote 全体を読む
+        let note = tiff.entryAllowingOutOfBuffer(ofIFDAtAbsolute: exifOff, tag: 0x927C)
+        if let note {
+            if note.valueIndex + 16 > bytes.count {
+                needed = max(needed, note.valueIndex + 64 * 1024)
+            } else if OlympusMakerNote.reader(data: bytes, start: note.valueIndex) != nil {
+                needed = max(needed, OlympusMakerNote.neededEnd(data: bytes, start: note.valueIndex))
+            } else {
+                needed = max(needed, note.valueIndex + note.count)
+            }
         }
         guard let (exif, _) = tiff.readIFD(atOffset: exifOff) else { return (m, needed) }
 
@@ -105,6 +117,16 @@ public enum ARWMetadataReader {
             m.captureDate = JPEGMetadataReader.parseDate(s, subSec: sub, offset: offset)
         }
 
+        if let note, let v = OlympusMakerNote.parse(data: bytes, start: note.valueIndex) {
+            m.olympusAFPoint = v.afPoint
+            if let p = v.preview { m.mpfPreview = p }
+            // ORF の ExifIFD には画像の幅・高さが無い。切り出し範囲の大きさ（現像後の大きさ）を使う
+            if m.imageWidth == nil, m.imageHeight == nil, let size = v.aspectFrameSize {
+                m.imageWidth = size.width
+                m.imageHeight = size.height
+            }
+            return (m, needed)
+        }
         if let e = exif.entry(0x927C),
            let ifd = SonyMakerNote.ifdStart(tiff: tiff, start: e.valueIndex, length: e.count),
            let noteNeeded = tiff.neededEnd(ofIFDAtAbsolute: ifd, tags: SonyMakerNote.outOfLineTags) {

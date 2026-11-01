@@ -7,15 +7,15 @@ import IOSurface
 import Synchronization
 import JPPhotoPickerCore
 
-/// 画像の取り出し元の種類。ARW だけのファイルは `.arw` の分岐で扱う。
+/// 画像の取り出し元の種類。RAW（ARW / ORF）だけのファイルは `.raw` の分岐で扱う。
 enum ImageSource: Sendable {
-    /// JPG（ペアの ARW があっても JPG を使う）
+    /// JPG（ペアの RAW があっても JPG を使う）
     case jpeg(URL)
-    /// ARW だけのファイル（埋め込み JPEG プレビュー / RAW 現像）。
-    case arw(URL)
+    /// RAW だけのファイル（埋め込み JPEG プレビュー / RAW 現像）。
+    case raw(URL)
 
     init(item: PhotoItem) {
-        if let jpg = item.jpgURL { self = .jpeg(jpg) } else { self = .arw(item.primaryURL) }
+        if let jpg = item.jpgURL { self = .jpeg(jpg) } else { self = .raw(item.primaryURL) }
     }
 }
 
@@ -381,31 +381,32 @@ final class ImagePipeline: @unchecked Sendable {
             case .screen(let maxPixel): return decodeJPEGScreen(url: url, maxPixel: maxPixel)
             case .body: return decodeJPEGBody(url: url)
             }
-        case .arw(let url):
+        case .raw(let url):
             switch kind {
-            case .thumbnail: return decodeARWThumbnail(url: url, metadata: item.metadata)
-            case .preview: return decodeARWPreview(url: url, metadata: item.metadata)
-            case .screen(let maxPixel): return decodeARWScreen(url: url, maxPixel: maxPixel)
-            case .body: return decodeARWBody(url: url)
+            case .thumbnail: return decodeRAWThumbnail(url: url, metadata: item.metadata)
+            case .preview: return decodeRAWPreview(url: url, metadata: item.metadata)
+            case .screen(let maxPixel): return decodeRAWScreen(url: url, maxPixel: maxPixel)
+            case .body: return decodeRAWBody(url: url)
             }
         }
     }
 
-    // MARK: ARW
+    // MARK: RAW
 
-    /// ARW のサムネイル。埋め込み JPEG（1920×1080、100KB 弱）を縮小デコードする。
+    /// RAW のサムネイル。埋め込み JPEG（ARW は 1920×1080・100KB 弱、ORF は 3200×2400・1.2MB 程度）を縮小デコードする。
     /// ImageIO に ARW を渡すと 1 枚 300ms ほどかかる（α1 II で実測）ので、埋め込みが取れないときだけ使う。
-    private static func decodeARWThumbnail(url: URL, metadata: PhotoMetadata?) -> CGImage? {
-        if let data = embeddedARWJPEGData(url: url, metadata: metadata),
+    private static func decodeRAWThumbnail(url: URL, metadata: PhotoMetadata?) -> CGImage? {
+        if let data = embeddedRAWJPEGData(url: url, metadata: metadata),
            let source = CGImageSourceCreateWithData(data as CFData, nil) {
             let opts: [CFString: Any] = [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceShouldCacheImmediately: true,
                 kCGImageSourceThumbnailMaxPixelSize: 320,
             ]
-            // 向きはプレビューと同じく ARW の Orientation で当てる（ImageIO には当てさせない）
+            // 向きはプレビューと同じく RAW の Orientation で当てる（ImageIO には当てさせない）
             if let image = CGImageSourceCreateThumbnailAtIndex(source, 0, opts as CFDictionary) {
-                return oriented(image, orientation: metadata?.orientation ?? 1)
+                return oriented(croppedRAWPreview(image, url: url, metadata: metadata),
+                                orientation: metadata?.orientation ?? 1)
             }
         }
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
@@ -418,10 +419,11 @@ final class ImagePipeline: @unchecked Sendable {
         return CGImageSourceCreateThumbnailAtIndex(source, 0, opts as CFDictionary)
     }
 
-    /// ARW の大プレビュー。埋め込み JPEG があればそれ、無ければ ImageIO（長辺 1920、埋め込み優先）。
-    private static func decodeARWPreview(url: URL, metadata: PhotoMetadata?) -> CGImage? {
-        if let embedded = embeddedARWJPEG(url: url, metadata: metadata) {
-            return oriented(embedded, orientation: metadata?.orientation ?? 1)
+    /// RAW の大プレビュー。埋め込み JPEG があればそれ、無ければ ImageIO（長辺 1920、埋め込み優先）。
+    private static func decodeRAWPreview(url: URL, metadata: PhotoMetadata?) -> CGImage? {
+        if let embedded = embeddedRAWJPEG(url: url, metadata: metadata) {
+            return oriented(croppedRAWPreview(embedded, url: url, metadata: metadata),
+                            orientation: metadata?.orientation ?? 1)
         }
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let opts: [CFString: Any] = [
@@ -435,7 +437,7 @@ final class ImagePipeline: @unchecked Sendable {
 
     /// 全体表示用の RAW 現像（向き適用済み）。長辺 `maxPixel` になる倍率で現像する（縮小現像は速い）。
     /// CIRAWFilter が使えないときは ImageIO に現像させて縮小する（RAW 現像なので重い）。
-    private static func decodeARWScreen(url: URL, maxPixel: Int) -> CGImage? {
+    private static func decodeRAWScreen(url: URL, maxPixel: Int) -> CGImage? {
         if let filter = CIRAWFilter(imageURL: url) {
             let native = filter.nativeSize
             let long = max(native.width, native.height)
@@ -453,7 +455,7 @@ final class ImagePipeline: @unchecked Sendable {
     }
 
     /// 拡大用の RAW 現像（向き適用済み）。CIRAWFilter、使えなければ ImageIO のフル解像度。
-    private static func decodeARWBody(url: URL) -> CGImage? {
+    private static func decodeRAWBody(url: URL) -> CGImage? {
         if let filter = CIRAWFilter(imageURL: url), let output = filter.outputImage {
             let space = CGColorSpace(name: CGColorSpace.sRGB)!
             if let image = ciContext.createCGImage(output, from: output.extent, format: .RGBA8, colorSpace: space) {
@@ -467,13 +469,20 @@ final class ImagePipeline: @unchecked Sendable {
         return imageIOThumbnail(source: source, maxPixel: max(w, h, 1920))
     }
 
-    /// ARW に埋め込まれた JPEG（先頭が FF D8 のものだけ）。向きは未適用
-    private static func embeddedARWJPEG(url: URL, metadata: PhotoMetadata?) -> CGImage? {
-        embeddedARWJPEGData(url: url, metadata: metadata).flatMap(decodeData)
+    /// ORF の埋め込みプレビューは全センサー（4:3）のままなので、現像後と同じ縦横比（3:2 など）に中央を切り出す。
+    /// 切り出さないと、全体表示（現像）に切り替わったときに画角が変わる。ARW はそのまま返す
+    private static func croppedRAWPreview(_ image: CGImage, url: URL, metadata: PhotoMetadata?) -> CGImage {
+        guard url.pathExtension.caseInsensitiveCompare("orf") == .orderedSame else { return image }
+        return croppedToContent(image, metadata: metadata)
     }
 
-    /// ARW に埋め込まれた JPEG のバイト列（先頭が FF D8 のものだけ）
-    private static func embeddedARWJPEGData(url: URL, metadata: PhotoMetadata?) -> Data? {
+    /// RAW に埋め込まれた JPEG（先頭が FF D8 のものだけ）。向きは未適用
+    private static func embeddedRAWJPEG(url: URL, metadata: PhotoMetadata?) -> CGImage? {
+        embeddedRAWJPEGData(url: url, metadata: metadata).flatMap(decodeData)
+    }
+
+    /// RAW に埋め込まれた JPEG のバイト列（先頭が FF D8 のものだけ）
+    private static func embeddedRAWJPEGData(url: URL, metadata: PhotoMetadata?) -> Data? {
         guard let range = metadata?.mpfPreview,
               let data = try? range.readData(from: url),
               data.count > 2, data[data.startIndex] == 0xFF, data[data.startIndex + 1] == 0xD8 else { return nil }

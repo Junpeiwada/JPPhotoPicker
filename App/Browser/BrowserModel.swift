@@ -13,10 +13,10 @@ struct BrowserEntry: Identifiable, Hashable {
     let groupCount: Int
     let isBurst: Bool
 
-    /// 読み上げ用の説明（ファイル名、ARW だけ、連写の位置、採用）。フィルムストリップとプレビューで共用する
+    /// 読み上げ用の説明（ファイル名、RAW だけ、連写の位置、採用）。フィルムストリップとプレビューで共用する
     func spokenDescription(decision: Decision) -> String {
         var text = item.id
-        if item.kind == .arwOnly { text += "、ARW だけ" }
+        if item.kind == .rawOnly { text += "、\(item.rawExtension ?? "RAW") だけ" }
         if isBurst { text += "、連写 \(groupCount) 枚中 \(positionInGroup + 1) 枚目" }
         switch decision {
         case .picked: text += "、採用"
@@ -977,7 +977,7 @@ final class BrowserModel {
         }
         pipeline.prefetch(.preview, items: order)
         // 全体表示用も先読みする（別のキューなので大プレビューと並行して進む）。
-        // 枚数はキャッシュに収まる分まで。ARW だけのコマは RAW 現像（ファイル全体の読み込み）になるので前後 1 枚まで
+        // 枚数はキャッシュに収まる分まで。RAW だけのコマは RAW 現像（ファイル全体の読み込み）になるので前後 1 枚まで
         if let kind = screenKind {
             let ns = ScreenResolution.prefetchCount(requested: n, maxPixel: screenMaxPixel,
                                                     cacheLimit: ImagePipeline.screenCacheLimit)
@@ -986,7 +986,7 @@ final class BrowserModel {
                 for d in 1...ns {
                     for i in [currentIndex + d, currentIndex - d] where entries.indices.contains(i) {
                         let item = entries[i].item
-                        if item.kind != .arwOnly || d == 1 { screenOrder.append(item) }
+                        if item.kind != .rawOnly || d == 1 { screenOrder.append(item) }
                     }
                 }
             }

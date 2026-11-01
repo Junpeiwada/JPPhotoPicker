@@ -275,7 +275,7 @@ struct SyntheticJPEGTests {
     func shrinkingARWDoesNotLoop() throws {
         var calls = 0
         let full = SyntheticARWForEOF.bytesWithoutMakerNote   // 実サイズ 512 バイト。要求より短く返るので EOF とみなされる
-        let m = try ARWMetadataReader.read(fileSize: 50_000_000) { offset, count in
+        let m = try RAWMetadataReader.read(fileSize: 50_000_000) { offset, count in
             calls += 1
             #expect(calls < 50)
             guard offset < full.count else { return Data() }

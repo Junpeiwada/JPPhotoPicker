@@ -29,7 +29,7 @@ private struct ApplyFlowModifier: ViewModifier {
             } message: { plan in
                 let total = model.entries.count
                 let moving = plan.candidates.count
-                let files = "JPG \(plan.jpgCount) 枚・ARW \(plan.arwCount) 枚"
+                let files = "JPG \(plan.jpgCount) 枚・RAW \(plan.rawCount) 枚"
                 if model.pickedCount == 0 {
                     Text("採用の印が付いたコマがひとつもないため、フォルダ内の \(total) コマすべてを \(ApplyEngine.rejectedFolderName) に移します。\n（\(files)）。「適用を取り消す」で元に戻せます。")
                 } else {

@@ -11,10 +11,10 @@ public struct MoveCandidate: Sendable, Hashable, Identifiable {
     /// コマ ID（`PhotoItem.id`）
     public let id: String
     public let jpgURL: URL?
-    public let arwURL: URL?
+    public let rawURL: URL?
 
-    /// 移すファイル（JPG、ARW の順。ペアの ARW も含む）
-    var urls: [URL] { [jpgURL, arwURL].compactMap { $0 } }
+    /// 移すファイル（JPG、RAW の順。ペアの RAW も含む）
+    var urls: [URL] { [jpgURL, rawURL].compactMap { $0 } }
 }
 
 public enum DecisionRules {
@@ -30,7 +30,7 @@ public enum DecisionRules {
             for item in g.items {
                 let d = decisions[item.id] ?? .undecided
                 if shouldMove(decision: d) {
-                    out.append(MoveCandidate(id: item.id, jpgURL: item.jpgURL, arwURL: item.arwURL))
+                    out.append(MoveCandidate(id: item.id, jpgURL: item.jpgURL, rawURL: item.rawURL))
                 }
             }
         }

@@ -4,11 +4,11 @@ public enum MetadataError: Error, Sendable, Equatable {
     case notJPEG
     case noExif
     case truncated
-    /// TIFF（ARW など）として読めない
+    /// TIFF（ARW / ORF など）として読めない
     case notTIFF
 }
 
-/// JPEG の先頭だけを読み、Exif / Sony MakerNote / MPF の情報を取り出す。
+/// JPEG の先頭だけを読み、Exif / MakerNote（Sony・Olympus）/ MPF の情報を取り出す。
 public enum JPEGMetadataReader {
     /// 最初に読むバイト数（APP1 は約 44KB、MPF はその直後にある）。足りなければ `needMore` で増やす
     static let initialReadSize = 64 * 1024
@@ -159,8 +159,11 @@ public enum JPEGMetadataReader {
             m.captureDate = parseDate(s, subSec: sub, offset: offset)
         }
 
-        if let e = exif.entry(0x927C),
-           let v = SonyMakerNote.parse(tiff: tiff, start: e.valueIndex, length: e.count) {
+        guard let e = exif.entry(0x927C) else { return }
+        if let v = OlympusMakerNote.parse(data: bytes, start: e.valueIndex) {
+            // 埋め込みプレビュー（TG-6 で 1008×672）は大プレビューには小さいので使わない
+            m.olympusAFPoint = v.afPoint
+        } else if let v = SonyMakerNote.parse(tiff: tiff, start: e.valueIndex, length: e.count) {
             m.releaseMode = v.releaseMode
             m.sequenceNumber = v.sequenceNumber
             m.focusLocation = v.focusLocation

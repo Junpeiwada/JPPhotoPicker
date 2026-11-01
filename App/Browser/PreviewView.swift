@@ -59,10 +59,11 @@ struct PreviewView: View {
                     badge { Text(model.progressText).monospacedDigit() }
                         .font(.callout.weight(.medium))
                 }
-                if model.currentItem?.kind == .arwOnly {
-                    badge { Text("ARW").font(.caption.weight(.semibold)) }
-                        .accessibilityLabel("ARW だけのファイル")
-                        .help("ペアの JPG がない ARW ファイルです")
+                if model.currentItem?.kind == .rawOnly {
+                    let ext = model.currentItem?.rawExtension ?? "RAW"
+                    badge { Text(ext).font(.caption.weight(.semibold)) }
+                        .accessibilityLabel("\(ext) だけのファイル")
+                        .help("ペアの JPG がない \(ext) ファイルです")
                 }
                 if model.showInfo, let item = model.currentItem {
                     // 上端中央の読み込み中マークに重ならない幅に抑える
@@ -160,7 +161,7 @@ struct PreviewView: View {
                 }
                 .buttonStyle(.glass)
                 .help(model.currentFocus.hasFocusPosition
-                      ? "ソニーのフォーカス位置を拡大表示します（F）"
+                      ? "カメラのフォーカス位置を拡大表示します（F）"
                       : "フォーカス位置がないので、中心を拡大表示します（F）")
             }
         }

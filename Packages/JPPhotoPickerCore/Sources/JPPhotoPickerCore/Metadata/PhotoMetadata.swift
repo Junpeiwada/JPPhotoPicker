@@ -67,9 +67,11 @@ public struct PhotoMetadata: Sendable, Equatable, Hashable {
     public var sequenceNumber: Int?
     public var focusLocation: FocusLocation?
     public var focusFrameSize: FocusFrameSize?
+    /// Olympus の AF の点（Sony の `focusLocation` に当たる。枠の大きさは記録されていない）
+    public var olympusAFPoint: OlympusAFPoint?
     /// IFD1 サムネイル（JPEG）のファイル内位置
     public var thumbnail: FileRange?
-    /// MPF 2 枚目（プレビュー、1920×1080 程度）のファイル内位置
+    /// MPF 2 枚目（プレビュー、1920×1080 程度）のファイル内位置。RAW では埋め込みプレビューの位置
     public var mpfPreview: FileRange?
     public var imageWidth: Int?
     public var imageHeight: Int?
@@ -81,6 +83,7 @@ public struct PhotoMetadata: Sendable, Equatable, Hashable {
         sequenceNumber: Int? = nil,
         focusLocation: FocusLocation? = nil,
         focusFrameSize: FocusFrameSize? = nil,
+        olympusAFPoint: OlympusAFPoint? = nil,
         thumbnail: FileRange? = nil,
         mpfPreview: FileRange? = nil,
         imageWidth: Int? = nil,
@@ -92,6 +95,7 @@ public struct PhotoMetadata: Sendable, Equatable, Hashable {
         self.sequenceNumber = sequenceNumber
         self.focusLocation = focusLocation
         self.focusFrameSize = focusFrameSize
+        self.olympusAFPoint = olympusAFPoint
         self.thumbnail = thumbnail
         self.mpfPreview = mpfPreview
         self.imageWidth = imageWidth

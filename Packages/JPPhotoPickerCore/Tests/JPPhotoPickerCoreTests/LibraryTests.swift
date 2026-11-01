@@ -13,7 +13,7 @@ private func item(_ name: String, burst seq: Int? = nil, time: Double, ext: Stri
         sequenceNumber: seq ?? 0)
     return PhotoItem(baseName: name,
                      jpgURL: ext == "ARW" ? nil : dir.appendingPathComponent("\(name).\(ext)"),
-                     arwURL: (arw || ext == "ARW") ? dir.appendingPathComponent("\(name).ARW") : nil,
+                     rawURL: (arw || ext == "ARW") ? dir.appendingPathComponent("\(name).ARW") : nil,
                      metadata: meta)
 }
 
@@ -41,12 +41,26 @@ struct FolderScannerTests {
 
         let items = try FolderScanner.scan(folder: dir)
         #expect(items.map(\.id) == ["A1_0001.JPG", "A1_0002.jpeg", "A1_0003.ARW", "A1_0004.jpg"])
-        #expect(items.map(\.kind) == [.pair, .jpgOnly, .arwOnly, .pair])
-        #expect(items[0].arwURL?.lastPathComponent == "a1_0001.arw")
+        #expect(items.map(\.kind) == [.pair, .jpgOnly, .rawOnly, .pair])
+        #expect(items[0].rawURL?.lastPathComponent == "a1_0001.arw")
         #expect(items[2].jpgURL == nil)
         #expect(items[2].primaryURL.lastPathComponent == "A1_0003.ARW")
         #expect(items[0].fileNumber == 1)
         #expect(items.allSatisfy { $0.metadata == nil })
+    }
+
+    @Test("ORF も RAW としてペアにする（大文字小文字は無視）")
+    func scanORF() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        for n in ["PA290001.JPG", "pa290001.orf", "PA290002.ORF", "PA290003.jpg"] {
+            FileManager.default.createFile(atPath: dir.appendingPathComponent(n).path, contents: Data([0]))
+        }
+        let items = try FolderScanner.scan(folder: dir)
+        #expect(items.map(\.id) == ["PA290001.JPG", "PA290002.ORF", "PA290003.jpg"])
+        #expect(items.map(\.kind) == [.pair, .rawOnly, .jpgOnly])
+        #expect(items.map(\.rawExtension) == ["ORF", "ORF", nil])
+        #expect(items[0].allURLs.map(\.lastPathComponent) == ["PA290001.JPG", "pa290001.orf"])
     }
 
     @Test("ファイル番号は末尾の数字列")
@@ -74,7 +88,7 @@ struct PhotoMetadataLoaderTests {
     private func makeItems(_ n: Int) -> [PhotoItem] {
         (0..<n).map {
             PhotoItem(baseName: String(format: "A1_%05d", $0),
-                      jpgURL: URL(fileURLWithPath: "/tmp/x/A1_\(String(format: "%05d", $0)).JPG"), arwURL: nil)
+                      jpgURL: URL(fileURLWithPath: "/tmp/x/A1_\(String(format: "%05d", $0)).JPG"), rawURL: nil)
         }
     }
 
@@ -250,7 +264,7 @@ struct BurstGrouperTests {
     @Test("メタデータなし（ARW だけ等）は単写で末尾")
     func nilMetadata() {
         let noMeta = PhotoItem(baseName: "X_0001", jpgURL: nil,
-                               arwURL: URL(fileURLWithPath: "/tmp/x/X_0001.ARW"), metadata: nil)
+                               rawURL: URL(fileURLWithPath: "/tmp/x/X_0001.ARW"), metadata: nil)
         let g = BurstGrouper.group([noMeta, item("A_0001", time: 5)])
         #expect(g.map { $0.items[0].baseName } == ["A_0001", "X_0001"])
         #expect(!g[1].isBurst)
@@ -304,7 +318,7 @@ struct DecisionTests {
         #expect(c[2].urls.map(\.lastPathComponent) == ["S_0100.JPG", "S_0100.ARW"])
         #expect(c[3].urls.map(\.lastPathComponent) == ["S_0101.JPG"])   // 単写の採用していない（不採用）コマも移す
         #expect(c[4].urls.map(\.lastPathComponent) == ["R_0200.ARW"])
-        #expect(c[4].jpgURL == nil && c[4].arwURL != nil)
+        #expect(c[4].jpgURL == nil && c[4].rawURL != nil)
     }
 
     @Test("連写グループで1枚も採用しなければ全コマを移す")

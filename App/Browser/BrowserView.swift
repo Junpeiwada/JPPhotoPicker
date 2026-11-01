@@ -78,7 +78,7 @@ struct BrowserView: View {
             ContentUnavailableView {
                 Label("写真が見つかりません", systemImage: "photo")
             } description: {
-                Text(model.errorMessage ?? "このフォルダには JPG / ARW がありません。")
+                Text(model.errorMessage ?? "このフォルダには JPG / ARW / ORF がありません。")
             } actions: {
                 Button("別のフォルダを開く…") { model.chooseFolder() }
             }

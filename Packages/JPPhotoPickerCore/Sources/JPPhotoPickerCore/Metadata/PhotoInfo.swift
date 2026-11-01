@@ -186,4 +186,14 @@ extension PhotoMetadata {
         }
         return rows
     }
+
+    /// 情報パネルに出す MakerNote の値（Sony・Olympus のうち読めたもの）
+    public var makerNoteInfoRows: [PhotoInfoRow] { sonyInfoRows + olympusInfoRows }
+
+    /// ImageIO では読めない Olympus MakerNote の値（自前パーサーで読んだもの）
+    public var olympusInfoRows: [PhotoInfoRow] {
+        guard let p = olympusAFPoint else { return [] }
+        let percent = { (v: Double) in PhotoInfo.number(v * 100, digits: 1) + "%" }
+        return [PhotoInfoRow(label: "AFPointSelected", value: "(\(percent(p.x)), \(percent(p.y)))")]
+    }
 }

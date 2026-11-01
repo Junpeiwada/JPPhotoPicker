@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 概要
 
-Sony α で JPG + ARW を同時記録した写真を高速に選別する macOS 26 向け SwiftUI アプリ。仕様の正本は [Docs/仕様.md](Docs/仕様.md)、Sony MakerNote の調査結果は [Docs/メタデータ調査.md](Docs/メタデータ調査.md)、進捗は [Docs/実装計画-JPPhotoPicker.md](Docs/実装計画-JPPhotoPicker.md)。挙動を変えるときはまず仕様.md を確認し、仕様側も更新する。
+Sony α で JPG + ARW を同時記録した写真を高速に選別する macOS 26 向け SwiftUI アプリ（オリンパスの JPG + ORF もペアの移動と AF 位置の表示まで対応）。仕様の正本は [Docs/仕様.md](Docs/仕様.md)、Sony MakerNote の調査結果は [Docs/メタデータ調査.md](Docs/メタデータ調査.md)、進捗は [Docs/実装計画-JPPhotoPicker.md](Docs/実装計画-JPPhotoPicker.md)。挙動を変えるときはまず仕様.md を確認し、仕様側も更新する。
 
 ## コマンド
 
@@ -44,9 +44,9 @@ GUI を目視せずに動作を確かめる仕組み。
 
 ### JPPhotoPickerCore
 
-- `Metadata/` — exiftool に依存しない自前パーサー。JPEG の先頭（APP1 / APP2 MPF）だけを読み、Exif・Orientation・IFD1 サムネイル位置・MPF プレビュー位置と Sony MakerNote（`ReleaseMode` / `SequenceNumber` / `FocusLocation` / `FocusFrameSize`）を取り出す。ARW は TIFF 構造から同じ情報を読む。`FocusFrameSize` / `FocusLocation` は型宣言が undefined のことがあるため u16 として生読みしている
-- `Geometry/FocusGeometry` — フォーカス位置を 0〜1 の比率にし、Orientation に合わせて変換する（座標はセンサー向きで記録されている）
-- `Library/` — `FolderScanner`（JPG/ARW のペア付け、大文字小文字無視）→ `BurstGrouper`（連写グループ化）→ `Decision`/`DecisionHistory`（判定と取り消し履歴、`DecisionBook`）→ `SessionStore`（`.jpphotopicker.json`。判定・適用の記録・最後に見ていたコマ `lastViewedID` を持つ。version 付き。新しい版のファイルは読み取り専用扱い）→ `ApplyEngine`（`_rejected/` への一括移動と取り消し）
+- `Metadata/` — exiftool に依存しない自前パーサー。JPEG の先頭（APP1 / APP2 MPF）だけを読み、Exif・Orientation・IFD1 サムネイル位置・MPF プレビュー位置と Sony MakerNote（`ReleaseMode` / `SequenceNumber` / `FocusLocation` / `FocusFrameSize`）を取り出す。ARW / ORF は `RAWMetadataReader` が TIFF 構造から同じ情報を読む。`FocusFrameSize` / `FocusLocation` は型宣言が undefined のことがあるため u16 として生読みしている。オリンパスは `OlympusMakerNote` が `AFPointSelected`（4:3 の比率）・埋め込みプレビュー・`AspectFrame` を読む
+- `Geometry/FocusGeometry` — フォーカス位置を 0〜1 の比率にし、Orientation に合わせて変換する（座標はセンサー向きで記録されている）。オリンパスの点は 4:3 の座標系から画像の縦横比へ中央切り出しで換算し、短辺 6% の固定枠にする
+- `Library/` — `FolderScanner`（JPG と RAW（ARW / ORF）のペア付け、大文字小文字無視。`rawURL` / `PhotoKind.rawOnly`）→ `BurstGrouper`（連写グループ化）→ `Decision`/`DecisionHistory`（判定と取り消し履歴、`DecisionBook`）→ `SessionStore`（`.jpphotopicker.json`。判定・適用の記録・最後に見ていたコマ `lastViewedID` を持つ。version 付き。新しい版のファイルは読み取り専用扱い）→ `ApplyEngine`（`_rejected/` への一括移動と取り消し）
 - `Viewer/` — `ZoomState`（全体 / 100% / 200% / ピンチ倍率、コマ移動時の位置保持ルール）と `ViewportGeometry`
 - `Metadata/PhotoInfo` — 情報パネルに出す撮影情報。ImageIO のプロパティ辞書から主要項目（機種・レンズ・露出など）を整形し、自前パーサーで読んだ Sony MakerNote の値を足す
 - `Library/RecentFolders` — 最近開いたフォルダの履歴（新しい順、同じフォルダは1件にまとめ、上限10件）。UserDefaults に JSON で保存する
@@ -56,7 +56,7 @@ GUI を目視せずに動作を確かめる仕組み。
 ### App
 
 - `Browser/BrowserModel` — `@MainActor @Observable` の中心。コマ一覧・判定・ズーム・保存（遅延書き込み、終了時に flush）・適用の状態をすべて持ち、ビューとキー操作はこのメソッドを呼ぶだけ
-- `Imaging/ImagePipeline` — サムネイル / 大プレビュー（MPF 1920px、仮表示）/ 全体表示用（本体を画面の画素数に縮小）/ 本体の4段階。種類ごとの `OperationQueue` でデコードし（Swift の協調プールを塞がない）、同じ画像の要求は1ジョブにまとめ、`NSCache` に置く。サムネイル以外は **IOSurface に描いてから持つ**（CGImage をレイヤーに渡すと、コミット時にメインスレッドで色変換・コピーが走り、コマ送りが 1 回 40ms ほど止まる）。ARW だけのファイルは埋め込み JPEG、全体表示・拡大時は RAW 現像
+- `Imaging/ImagePipeline` — サムネイル / 大プレビュー（MPF 1920px、仮表示）/ 全体表示用（本体を画面の画素数に縮小）/ 本体の4段階。種類ごとの `OperationQueue` でデコードし（Swift の協調プールを塞がない）、同じ画像の要求は1ジョブにまとめ、`NSCache` に置く。サムネイル以外は **IOSurface に描いてから持つ**（CGImage をレイヤーに渡すと、コミット時にメインスレッドで色変換・コピーが走り、コマ送りが 1 回 40ms ほど止まる）。RAW だけのファイルは埋め込み JPEG（ORF は 4:3 なので画像の縦横比に切り出す）、全体表示・拡大時は RAW 現像
 - `Viewer/ZoomableImageView` — ピンチ・ドラッグ・スクロール・クリックを NSView で受けて `BrowserModel` に渡す
 - `AppLifecycle` — 適用・取り消しの実行中は終了やウインドウのクローズを止める
 - `Update/UpdaterController` — Sparkle の自動更新。起動のたびに裏で確認し（DEBUG では手動だけ）、適用・取り消しの実行中は更新後の再起動を待たせる
@@ -66,9 +66,10 @@ GUI を目視せずに動作を確かめる仕組み。
 - 連写グループは「ファイル番号 − SequenceNumber + 1」（連写の先頭番号）で区切る。撮影時刻の差では区切らない
 - 1コマだけの連写グループは単写として扱う（表示とグループ移動のみ。移動のルールは連写も単写も同じ）
 - 判定は「採用」とそれ以外（不採用）の2つだけ。適用時は採用していないコマを連写・単写とも移動する。採用がひとつも無いときは確認で全コマが移ることを警告する
-- JPG と ARW のペアは必ずそろって移す。片方が失敗したら戻して、そのペアは失敗一覧に出す
+- JPG と RAW のペアは必ずそろって移す。片方が失敗したら戻して、そのペアは失敗一覧に出す
 
 ## テストデータ
 
 - 実画像サンプルは `~/Dropbox/受け渡し用フォルダ/連射インターバル/` にだけあり、無ければ該当テストは skip する。**リポジトリにコピーしない**。期待値は exiftool の実測値として `Tests/.../SampleData.swift` に固定されている
 - 実機の ARW サンプルは無い。ARW 関連は合成データ（`SyntheticJPEG.swift` など）でのみ検証している
+- オリンパス（TG-6）の実サンプルは `/Volumes/DriveStation9T/一時保管所/2026-10-30/100OLYMP` にあり（すべて単写）、無ければ `OlympusSampleTests` は skip する。**サンプルには触らない**（アプリで直接開くと `.jpphotopicker.json` が書かれるので、目視確認はスクラッチにコピーして開く）

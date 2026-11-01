@@ -144,8 +144,8 @@ private struct FilmstripCell: View {
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .overlay(alignment: .bottomTrailing) { decisionMark }
         .overlay(alignment: .topLeading) {
-            if item.kind == .arwOnly {
-                Text("ARW")
+            if item.kind == .rawOnly {
+                Text(item.rawExtension ?? "RAW")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 5)

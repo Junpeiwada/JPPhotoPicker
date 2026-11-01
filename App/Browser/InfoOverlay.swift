@@ -14,13 +14,13 @@ struct InfoOverlay: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(item.id).font(.headline).monospaced()
-            // 主要項目と Sony の項目は 1 つの表にして、値の左端をそろえる
+            // 主要項目と MakerNote（Sony・Olympus）の項目は 1 つの表にして、値の左端をそろえる
             Grid(alignment: .topLeading, horizontalSpacing: 10, verticalSpacing: 3) {
                 rows(model.infoCache[item.id]?.summary ?? [])
-                let sony = item.metadata?.sonyInfoRows ?? []
-                if !sony.isEmpty {
+                let makerNote = item.metadata?.makerNoteInfoRows ?? []
+                if !makerNote.isEmpty {
                     Color.clear.frame(height: 6).gridCellUnsizedAxes(.horizontal)
-                    rows(sony)
+                    rows(makerNote)
                 }
             }
         }

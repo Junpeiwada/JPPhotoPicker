@@ -99,11 +99,11 @@ enum SyntheticARWForEOF {
     }
 }
 
-@Suite("ARWMetadataReader")
+@Suite("RAWMetadataReader")
 struct ARWMetadataTests {
     @Test("合成データから日時・Orientation・MakerNote・プレビュー位置を読める")
     func parseSynthetic() throws {
-        let m = try #require(ARWMetadataReader.parse(prefix: Data(SyntheticARW().build())))
+        let m = try #require(RAWMetadataReader.parse(prefix: Data(SyntheticARW().build())))
         #expect(m.orientation == 6)
         #expect(m.releaseMode == 2)
         #expect(m.sequenceNumber == 6)
@@ -120,7 +120,7 @@ struct ARWMetadataTests {
     func headerlessMakerNote() throws {
         var s = SyntheticARW()
         s.makerNoteHeader = false
-        let m = try #require(ARWMetadataReader.parse(prefix: Data(s.build())))
+        let m = try #require(RAWMetadataReader.parse(prefix: Data(s.build())))
         #expect(m.releaseMode == 2)
         #expect(m.sequenceNumber == 6)
         #expect(m.focusLocation == FocusLocation(width: 8640, height: 4864, x: 4563, y: 2918))
@@ -134,12 +134,12 @@ struct ARWMetadataTests {
             s.withMakerNote = withMakerNote
             let bytes = s.build(padTo: 1_000_000)
             var reads: [(Int, Int)] = []
-            let m = try ARWMetadataReader.read(fileSize: bytes.count) { offset, count in
+            let m = try RAWMetadataReader.read(fileSize: bytes.count) { offset, count in
                 reads.append((offset, count))
                 return Data(bytes[offset..<min(offset + count, bytes.count)])
             }
             #expect(reads.count == 1)
-            #expect(reads.first?.1 == ARWMetadataReader.initialReadSize)
+            #expect(reads.first?.1 == RAWMetadataReader.initialReadSize)
             #expect((m.releaseMode != nil) == withMakerNote)
         }
     }
@@ -149,7 +149,7 @@ struct ARWMetadataTests {
         var s = SyntheticARW()
         s.withMakerNote = false
         s.withPreview = false
-        let m = try #require(ARWMetadataReader.parse(prefix: Data(s.build())))
+        let m = try #require(RAWMetadataReader.parse(prefix: Data(s.build())))
         #expect(m.captureDate != nil)
         #expect(m.releaseMode == nil)
         #expect(m.focusLocation == nil)
@@ -161,13 +161,13 @@ struct ARWMetadataTests {
     func largestPreview() throws {
         var s = SyntheticARW()
         s.withExtraPreviews = true
-        let m = try #require(ARWMetadataReader.parse(prefix: Data(s.build())))
+        let m = try #require(RAWMetadataReader.parse(prefix: Data(s.build())))
         #expect(m.mpfPreview == FileRange(offset: 9000, length: 99_999))
         s.subPreviewLength = 10          // SubIFD が小さければ IFD1（5000）より IFD0 の 1234 ではなく 5000 が最大
-        let m2 = try #require(ARWMetadataReader.parse(prefix: Data(s.build())))
+        let m2 = try #require(RAWMetadataReader.parse(prefix: Data(s.build())))
         #expect(m2.mpfPreview == FileRange(offset: 7000, length: 5000))
         // 従来どおり IFD0 だけのときは IFD0
-        let m3 = try #require(ARWMetadataReader.parse(prefix: Data(SyntheticARW().build())))
+        let m3 = try #require(RAWMetadataReader.parse(prefix: Data(SyntheticARW().build())))
         #expect(m3.mpfPreview == FileRange(offset: 5000, length: 1234))
     }
 
@@ -177,10 +177,10 @@ struct ARWMetadataTests {
         s.withExtraPreviews = true      // IFD0: (5000,1234) IFD1: (7000,5000) SubIFD: (9000,99999)
         let bytes = s.build()
         // 大きさ 13_000 のファイル: SubIFD（9000+99999）は外、IFD1（7000+5000=12000）が最大
-        let m = try #require(ARWMetadataReader.parse(bytes: bytes, fileSize: 13_000))
+        let m = try #require(RAWMetadataReader.parse(bytes: bytes, fileSize: 13_000))
         #expect(m.mpfPreview == FileRange(offset: 7000, length: 5000))
         // 全部外なら nil
-        let m2 = try #require(ARWMetadataReader.parse(bytes: bytes, fileSize: 100))
+        let m2 = try #require(RAWMetadataReader.parse(bytes: bytes, fileSize: 100))
         #expect(m2.mpfPreview == nil)
     }
 
@@ -190,40 +190,40 @@ struct ARWMetadataTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("A1_0001.ARW")
         try Data(SyntheticARW().build()).write(to: url)   // プレビュー（5000+1234）は 512 バイトのファイルの外
-        let m = try ARWMetadataReader.read(url: url)
+        let m = try RAWMetadataReader.read(url: url)
         #expect(m.mpfPreview == nil && m.sequenceNumber == 6)
         // ファイルの中に収まるなら残る
         try Data(SyntheticARW().build(padTo: 8000)).write(to: url)
-        #expect(try ARWMetadataReader.read(url: url).mpfPreview == FileRange(offset: 5000, length: 1234))
+        #expect(try RAWMetadataReader.read(url: url).mpfPreview == FileRange(offset: 5000, length: 1234))
 
         let bad = dir.appendingPathComponent("A1_0002.ARW")
         try Data([0xFF, 0xD8, 0xFF, 0xE1, 0, 0, 0, 0, 0, 0]).write(to: bad)
-        #expect(throws: MetadataError.notTIFF) { _ = try ARWMetadataReader.read(url: bad) }
+        #expect(throws: MetadataError.notTIFF) { _ = try RAWMetadataReader.read(url: bad) }
     }
 
     @Test("TIFF でないデータは nil")
     func notTIFF() {
-        #expect(ARWMetadataReader.parse(prefix: Data()) == nil)
-        #expect(ARWMetadataReader.parse(prefix: Data([0xFF, 0xD8, 0xFF, 0xE1, 0, 0, 0, 0, 0, 0])) == nil)
+        #expect(RAWMetadataReader.parse(prefix: Data()) == nil)
+        #expect(RAWMetadataReader.parse(prefix: Data([0xFF, 0xD8, 0xFF, 0xE1, 0, 0, 0, 0, 0, 0])) == nil)
     }
 
     @Test("途中で切れたデータ・壊れたデータでも落ちない")
     func robustness() {
         let full = SyntheticARW().build()
         for n in stride(from: 0, through: full.count, by: 7) {
-            _ = ARWMetadataReader.parse(prefix: Data(full[0..<n]))
+            _ = RAWMetadataReader.parse(prefix: Data(full[0..<n]))
         }
         // 全バイトをでたらめな値にしたものを、ヘッダーだけ正しくして何度も読む
         var rng = SystemRandomNumberGenerator()
         for _ in 0..<300 {
             var b = full
             for _ in 0..<20 { b[Int.random(in: 8..<b.count, using: &rng)] = UInt8.random(in: 0...255, using: &rng) }
-            _ = ARWMetadataReader.parse(prefix: Data(b))
+            _ = RAWMetadataReader.parse(prefix: Data(b))
         }
         // IFD のエントリ数が巨大
         var big = full
         big[8] = 0xFF; big[9] = 0xFF
-        _ = ARWMetadataReader.parse(prefix: Data(big))
+        _ = RAWMetadataReader.parse(prefix: Data(big))
     }
 
     @Test("ファイルから読める。MakerNote が先頭 256KB の外にあっても追加読みで届く")
@@ -232,7 +232,7 @@ struct ARWMetadataTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("A1_0001.ARW")
         try Data(SyntheticARW().build()).write(to: url)
-        let m = try ARWMetadataReader.read(url: url)
+        let m = try RAWMetadataReader.read(url: url)
         #expect(m.sequenceNumber == 6)
 
         // MakerNote の値領域を 300KB 先に置いた別データ: 位置をずらして組み立て直す
@@ -250,39 +250,39 @@ struct ARWMetadataTests {
         for k in 0..<6 { far[moved + 110 + k] = far[410 + k] }
         let url2 = dir.appendingPathComponent("A1_0002.ARW")
         try Data(far).write(to: url2)
-        let m2 = try ARWMetadataReader.read(url: url2)
+        let m2 = try RAWMetadataReader.read(url: url2)
         #expect(m2.releaseMode == 2)
         #expect(m2.focusLocation?.x == 4563)
     }
 
-    @Test("defaultReader は ARW だけのコマで ARWMetadataReader を使う")
+    @Test("defaultReader は ARW だけのコマで RAWMetadataReader を使う")
     func defaultReaderForARWOnly() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let arw = dir.appendingPathComponent("A1_0001.ARW")
         try Data(SyntheticARW().build()).write(to: arw)
-        let item = PhotoItem(baseName: "A1_0001", jpgURL: nil, arwURL: arw)
+        let item = PhotoItem(baseName: "A1_0001", jpgURL: nil, rawURL: arw)
         let m = PhotoMetadataLoader.defaultReader(item)
         #expect(m?.sequenceNumber == 6)
         // 壊れた ARW は nil
         let bad = dir.appendingPathComponent("A1_0002.ARW")
         try Data([1, 2, 3]).write(to: bad)
-        #expect(PhotoMetadataLoader.defaultReader(PhotoItem(baseName: "A1_0002", jpgURL: nil, arwURL: bad)) == nil)
+        #expect(PhotoMetadataLoader.defaultReader(PhotoItem(baseName: "A1_0002", jpgURL: nil, rawURL: bad)) == nil)
     }
 
     @Test("ARW だけのコマは連写グループに混ざり、移動対象では ARW だけが移る")
-    func arwOnlyInGroupsAndRules() {
+    func rawOnlyInGroupsAndRules() {
         let dir = URL(fileURLWithPath: "/tmp/x")
-        func it(_ n: String, seq: Int, t: Double, arwOnly: Bool) -> PhotoItem {
+        func it(_ n: String, seq: Int, t: Double, rawOnly: Bool) -> PhotoItem {
             PhotoItem(baseName: n,
-                      jpgURL: arwOnly ? nil : dir.appendingPathComponent("\(n).JPG"),
-                      arwURL: dir.appendingPathComponent("\(n).ARW"),
+                      jpgURL: rawOnly ? nil : dir.appendingPathComponent("\(n).JPG"),
+                      rawURL: dir.appendingPathComponent("\(n).ARW"),
                       metadata: PhotoMetadata(captureDate: Date(timeIntervalSince1970: t), releaseMode: 2, sequenceNumber: seq))
         }
         let groups = BurstGrouper.group([
-            it("A1_0101", seq: 1, t: 1, arwOnly: false),
-            it("A1_0102", seq: 2, t: 2, arwOnly: true),
-            it("A1_0103", seq: 3, t: 3, arwOnly: false),
+            it("A1_0101", seq: 1, t: 1, rawOnly: false),
+            it("A1_0102", seq: 2, t: 2, rawOnly: true),
+            it("A1_0103", seq: 3, t: 3, rawOnly: false),
         ])
         #expect(groups.count == 1)
         #expect(groups[0].isBurst)
@@ -292,6 +292,6 @@ struct ARWMetadataTests {
         #expect(cands[0].jpgURL == nil)
         let plan = ApplyPlan(candidates: cands)
         #expect(plan.jpgCount == 1)
-        #expect(plan.arwCount == 2)
+        #expect(plan.rawCount == 2)
     }
 }

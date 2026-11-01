@@ -24,7 +24,7 @@ public struct FocusGeometry: Sendable, Equatable, Hashable {
     public let center: NormalizedPoint
     /// 表示向きの枠の大きさ（画像の幅・高さに対する比率）。枠なしのときは nil
     public let frameSize: NormalizedSize?
-    /// ソニーのフォーカス位置が使えるか。false のときは中心・枠なし
+    /// カメラのフォーカス位置（Sony の FocusLocation / Olympus の AFPointSelected）が使えるか。false のときは中心・枠なし
     public let hasFocusPosition: Bool
 
     public init(center: NormalizedPoint, frameSize: NormalizedSize?, hasFocusPosition: Bool) {
@@ -38,9 +38,46 @@ public struct FocusGeometry: Sendable, Equatable, Hashable {
         center: NormalizedPoint(x: 0.5, y: 0.5), frameSize: nil, hasFocusPosition: false)
 
     public init(metadata: PhotoMetadata) {
+        if metadata.focusLocation == nil, let point = metadata.olympusAFPoint {
+            self.init(olympus: point, imageWidth: metadata.imageWidth, imageHeight: metadata.imageHeight,
+                      orientation: metadata.orientation)
+            return
+        }
         self.init(location: metadata.focusLocation,
                   frameSize: metadata.focusFrameSize,
                   orientation: metadata.orientation)
+    }
+
+    /// Olympus の AF の枠の一辺（画像の短辺に対する比率）。枠の大きさは記録されていないので固定にする
+    public static let olympusFrameRatio = 0.06
+
+    /// Olympus の AF の点から作る。座標系（TG-6 は 4:3 の全センサー）の中央を、画像の縦横比
+    /// （`imageWidth` ÷ `imageHeight`、センサー向き）で切り出したものとして換算する。
+    /// 画像の大きさが無いときは座標系と同じ形とみなす。切り出しの外に出る点は、位置なしとして扱う。
+    public init(olympus point: OlympusAFPoint, imageWidth: Int?, imageHeight: Int?, orientation: Int) {
+        var x = point.x, y = point.y
+        var aspect = point.frameAspect
+        if let w = imageWidth, let h = imageHeight, w > 0, h > 0 {
+            aspect = Double(w) / Double(h)
+            if aspect > point.frameAspect {
+                // 横長に切り出した（上下を切った）: 残った高さの割合
+                let f = point.frameAspect / aspect
+                y = (y - (1 - f) / 2) / f
+            } else if aspect < point.frameAspect {
+                let f = aspect / point.frameAspect
+                x = (x - (1 - f) / 2) / f
+            }
+        }
+        guard aspect > 0, (0...1).contains(x), (0...1).contains(y) else {
+            self = .centered
+            return
+        }
+        let center = Self.transform(NormalizedPoint(x: x, y: y), orientation: orientation)
+        // 短辺に対して一定の大きさの正方形（センサー向きで、短辺 = 高さ（横長）または幅（縦長））
+        var w = aspect >= 1 ? Self.olympusFrameRatio / aspect : Self.olympusFrameRatio
+        var h = aspect >= 1 ? Self.olympusFrameRatio : Self.olympusFrameRatio * aspect
+        if (5...8).contains(orientation) { swap(&w, &h) }
+        self.init(center: center, frameSize: NormalizedSize(width: w, height: h), hasFocusPosition: true)
     }
 
     public init(location: FocusLocation?, frameSize: FocusFrameSize?, orientation: Int) {

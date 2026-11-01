@@ -11,9 +11,9 @@ public struct ApplyPlan: Sendable, Equatable {
 
     /// 移す JPG の枚数
     public var jpgCount: Int { candidates.filter { $0.jpgURL != nil }.count }
-    /// 移す ARW の枚数（ペアの ARW も含む）
-    public var arwCount: Int { candidates.filter { $0.arwURL != nil }.count }
-    /// 移すファイルの一覧（JPG、ARW の順にコマごと）
+    /// 移す RAW（ARW / ORF）の枚数（ペアの RAW も含む）
+    public var rawCount: Int { candidates.filter { $0.rawURL != nil }.count }
+    /// 移すファイルの一覧（JPG、RAW の順にコマごと）
     var files: [URL] { candidates.flatMap(\.urls) }
     public var isEmpty: Bool { candidates.isEmpty }
 }
@@ -37,7 +37,7 @@ public struct ApplyResult: Sendable, Equatable {
     public let record: ApplyRecord?
     public let failures: [ApplyFailure]
     let movedJPGCount: Int
-    let movedARWCount: Int
+    let movedRAWCount: Int
 
     public var movedCount: Int { record?.moves.count ?? 0 }
 }
@@ -126,24 +126,29 @@ public struct ApplyEngine: Sendable {
         ApplyPlan(candidates: DecisionRules.moveCandidates(groups: groups, decisions: decisions))
     }
 
-    /// ペアの相手の名前（「ARW」「JPG」）
+    /// ペアの相手の名前（「ARW」「ORF」「JPG」）
     private static func pairName(of w: WorkItem) -> String {
-        w.isJPG ? "ARW" : "JPG"
+        w.isJPG ? w.pairExtension : "JPG"
     }
 
     /// 相手を移せなかったので `w` も移さなかった、という理由
     private static func pairNotMoved(_ w: WorkItem) -> String {
-        "ペアの \(pairName(of: w)) を移せなかったため \(w.isJPG ? "JPG" : "ARW") も移しませんでした"
+        "ペアの \(pairName(of: w)) を移せなかったため \(w.kindName) も移しませんでした"
     }
 
     private struct WorkItem {
         let url: URL
         let name: String
         let isJPG: Bool
+        /// ペアの相手の拡張子（大文字）。JPG の項目でだけ使う
+        var pairExtension = "RAW"
+
+        /// 自分の種類の名前（「JPG」「ARW」「ORF」）
+        var kindName: String { isJPG ? "JPG" : url.pathExtension.uppercased() }
     }
 
     /// 予定どおり `_rejected/` に移す。同名のファイルがある・失敗したファイルは飛ばして失敗一覧に入れる（上書きしない）。
-    /// JPG と ARW のペアは必ずそろって移す。片方を移せなかったら、先に移した方を戻してペアごと失敗にする。
+    /// JPG と RAW のペアは必ずそろって移す。片方を移せなかったら、先に移した方を戻してペアごと失敗にする。
     /// 戻せなかったときは、移ったままの方を記録に残して失敗一覧に明記する（取り消しで戻せる）。
     /// 予定の URL がフォルダ直下のファイルでなければ、そのファイルは失敗扱いにする。
     /// 残っているジャーナル（前回の適用の復旧漏れ）があるときは、何も移さず全件失敗にする。
@@ -151,13 +156,13 @@ public struct ApplyEngine: Sendable {
         let fm = FileManager.default
         var failures: [ApplyFailure] = []
         var moves: [MoveRecord] = []
-        var jpgs = 0, arws = 0
-        guard !plan.isEmpty else { return ApplyResult(record: nil, failures: [], movedJPGCount: 0, movedARWCount: 0) }
+        var jpgs = 0, raws = 0
+        guard !plan.isEmpty else { return ApplyResult(record: nil, failures: [], movedJPGCount: 0, movedRAWCount: 0) }
 
         func failAll(_ reason: String) -> ApplyResult {
             ApplyResult(record: nil,
                         failures: plan.files.map { ApplyFailure(path: $0.lastPathComponent, reason: reason) },
-                        movedJPGCount: 0, movedARWCount: 0)
+                        movedJPGCount: 0, movedRAWCount: 0)
         }
 
         if fm.fileExists(atPath: journalURL.path) {
@@ -173,11 +178,12 @@ public struct ApplyEngine: Sendable {
             return failAll("\(Self.rejectedFolderName) がフォルダの外を指しているため中止しました")
         }
 
-        // 1 コマ = 1 単位。JPG と ARW のペアは同じ単位で、必ずそろって移す
+        // 1 コマ = 1 単位。JPG と RAW のペアは同じ単位で、必ずそろって移す
         var units: [[WorkItem]] = []
         for c in plan.candidates {
-            let unit = [(c.jpgURL, true), (c.arwURL, false)].compactMap { u, j in
-                u.map { WorkItem(url: $0, name: $0.lastPathComponent, isJPG: j) }
+            let pairExtension = c.rawURL?.pathExtension.uppercased() ?? "RAW"
+            let unit = [(c.jpgURL, true), (c.rawURL, false)].compactMap { u, j in
+                u.map { WorkItem(url: $0, name: $0.lastPathComponent, isJPG: j, pairExtension: pairExtension) }
             }
             if !unit.isEmpty { units.append(unit) }
         }
@@ -187,7 +193,7 @@ public struct ApplyEngine: Sendable {
 
         func record(_ w: WorkItem) {
             moves.append(MoveRecord(from: w.name, to: "\(Self.rejectedFolderName)/\(w.name)"))
-            if w.isJPG { jpgs += 1 } else { arws += 1 }
+            if w.isJPG { jpgs += 1 } else { raws += 1 }
         }
 
         var u = 0
@@ -249,7 +255,7 @@ public struct ApplyEngine: Sendable {
                                 record(moved)
                                 failures.append(ApplyFailure(
                                     path: moved.name,
-                                    reason: "ペアの \(Self.pairName(of: moved)) を移せなかったうえ、\(moved.isJPG ? "JPG" : "ARW") を元に戻せませんでした（\(Self.rejectedFolderName) に移ったままです。取り消しで戻せます）: \(error.localizedDescription)"))
+                                    reason: "ペアの \(Self.pairName(of: moved)) を移せなかったうえ、\(moved.kindName) を元に戻せませんでした（\(Self.rejectedFolderName) に移ったままです。取り消しで戻せます）: \(error.localizedDescription)"))
                             }
                         }
                         done = []
@@ -265,13 +271,13 @@ public struct ApplyEngine: Sendable {
             // 1 件も移せなかったのに作った空の _rejected は片付ける
             try? fm.removeItem(at: journalURL)
             removeRejectedFolderIfEmpty()
-            return ApplyResult(record: nil, failures: failures, movedJPGCount: 0, movedARWCount: 0)
+            return ApplyResult(record: nil, failures: failures, movedJPGCount: 0, movedRAWCount: 0)
         }
         journal.moves = moves
         journal.pending = []
         try? writeJournal(journal)   // 最終書き込み。失敗しても record は返す（直前のバッチまでは記録済み）
         let record = ApplyRecord(id: journal.id, date: journal.date, moves: moves)
-        return ApplyResult(record: record, failures: failures, movedJPGCount: jpgs, movedARWCount: arws)
+        return ApplyResult(record: record, failures: failures, movedJPGCount: jpgs, movedRAWCount: raws)
     }
 
     /// 適用の途中経過（ジャーナル）から記録を復旧する。
