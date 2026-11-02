@@ -15,25 +15,35 @@ private struct ApplyFlowModifier: ViewModifier {
                         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
             }
-            // 適用の確認（採用がひとつも無いときは、全コマが移ることをはっきり出す）
+            // 適用の確認（採用がひとつも無いときは、全コマが移ることをはっきり出す。移すコマが無いときは仕分けだけを選べる）
             .confirmationDialog(
-                model.pickedCount == 0 ? "すべての写真を移動しますか？" : "採用していない写真を移動しますか？",
+                applyTitle,
                 isPresented: Binding(
                     get: { model.pendingApplyPlan != nil },
                     set: { if !$0 { model.pendingApplyPlan = nil } }),
                 titleVisibility: .visible,
                 presenting: model.pendingApplyPlan
             ) { plan in
-                Button(model.pickedCount == 0 ? "すべて移動する" : "移動する", role: .destructive) { model.confirmApply(plan) }
+                if plan.isEmpty {
+                    Button("仕分けする", role: .destructive) { model.confirmApply(plan, sort: true) }
+                } else {
+                    Button(model.pickedCount == 0 ? "すべて移動する" : "移動する", role: .destructive) { model.confirmApply(plan) }
+                    // 全部移すときは直下に写真が残らないので、仕分けは出さない
+                    if model.pickedCount > 0 {
+                        Button("移動して仕分けする", role: .destructive) { model.confirmApply(plan, sort: true) }
+                    }
+                }
                 Button("キャンセル", role: .cancel) {}
             } message: { plan in
                 let total = model.entries.count
                 let moving = plan.candidates.count
                 let files = "JPG \(plan.jpgCount) 枚・RAW \(plan.rawCount) 枚"
-                if model.pickedCount == 0 {
+                if plan.isEmpty {
+                    Text("すべてのコマを採用しているため、\(ApplyEngine.rejectedFolderName) に移す写真はありません。\n\(sortExplanation)\n「適用を取り消す」で元に戻せます。")
+                } else if model.pickedCount == 0 {
                     Text("採用の印が付いたコマがひとつもないため、フォルダ内の \(total) コマすべてを \(ApplyEngine.rejectedFolderName) に移します。\n（\(files)）。「適用を取り消す」で元に戻せます。")
                 } else {
-                    Text("採用の印が無いコマを \(ApplyEngine.rejectedFolderName) に移します。\n採用 \(total - moving) / \(total)（残す）\n不採用 \(moving) / \(total)（移動。\(files)）\n「適用を取り消す」で元に戻せます。")
+                    Text("採用の印が無いコマを \(ApplyEngine.rejectedFolderName) に移します。\n採用 \(total - moving) / \(total)（残す）\n不採用 \(moving) / \(total)（移動。\(files)）\n「移動して仕分けする」は、移動のあとで\(sortExplanation)\n「適用を取り消す」で元に戻せます。")
                 }
             }
             // 取り消しの確認
@@ -48,7 +58,8 @@ private struct ApplyFlowModifier: ViewModifier {
                 Button("元に戻す") { model.confirmUndoApply(record) }
                 Button("キャンセル", role: .cancel) {}
             } message: { record in
-                Text("\(record.date.formatted(date: .abbreviated, time: .shortened)) に移動した \(record.moves.count) ファイルを元の場所へ戻します。")
+                let what = record.sortMoves.isEmpty ? "移動した" : record.moves.isEmpty ? "仕分けした" : "移動・仕分けした"
+                Text("\(record.date.formatted(date: .abbreviated, time: .shortened)) に\(what) \(record.fileCount) ファイルを元の場所へ戻します。")
             }
             // 通知
             .alert(
@@ -65,6 +76,20 @@ private struct ApplyFlowModifier: ViewModifier {
             .sheet(item: $model.failureReport) { report in
                 FailureListSheet(report: report)
             }
+    }
+
+    private var applyTitle: String {
+        guard let plan = model.pendingApplyPlan, !plan.isEmpty else { return "残した写真を仕分けしますか？" }
+        return model.pickedCount == 0 ? "すべての写真を移動しますか？" : "採用していない写真を移動しますか？"
+    }
+
+    /// 仕分けの説明（JPPhotoTools の「取り込み・整理」タブの［仕分けを実行］と同じ決まり）。採用した RAW だけのコマが Del に入ることも出す
+    private var sortExplanation: String {
+        var text = "残した写真を JPPhotoTools の［仕分けを実行］と同じく、\(FolderSorter.jpgFolderName)・\(FolderSorter.rawFolderName)・"
+            + "\(FolderSorter.orphanFolderName)（JPG の無い RAW）フォルダに分けます。"
+        let rawOnly = model.pickedRawOnlyCount
+        if rawOnly > 0 { text += "\n採用した RAW だけのコマ \(rawOnly) 枚も \(FolderSorter.orphanFolderName) に入ります。" }
+        return text
     }
 }
 

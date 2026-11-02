@@ -36,6 +36,8 @@ struct FolderLoadOutcome: Sendable {
     var readOnly = false
     /// 前回の適用のジャーナルの確認結果（復旧した記録・壊れていた・読めなかった）
     var recovery: JournalRecovery = .none
+    /// 前回の仕分けのジャーナルの確認結果
+    var sortRecovery: JournalRecovery = .none
 }
 
 /// 協調プールを占有しない（`@concurrent`）読み込み・書き込み
@@ -104,6 +106,7 @@ enum SessionIO {
 
         if !Task.isCancelled {
             out.recovery = ApplyEngine(folder: folder).recoverJournal()
+            out.sortRecovery = FolderSorter(folder: folder).recoverJournal()
         }
         return out
     }
@@ -139,9 +142,10 @@ enum SessionIO {
         do { try saver.write(data, generation: generation); return nil } catch { return error }
     }
 
+    /// `_rejected` へ移す。`sort` なら続けて残った写真を仕分ける（JPPhotoTools の［仕分けを実行］と同じ決まり）
     @concurrent
-    static func apply(folder: URL, plan: ApplyPlan) async -> ApplyResult {
-        ApplyEngine(folder: folder).apply(plan)
+    static func apply(folder: URL, plan: ApplyPlan, sort: Bool) async -> ApplyOutcome {
+        FolderSorter.applyAndSort(plan, sort: sort, engine: ApplyEngine(folder: folder), sorter: FolderSorter(folder: folder))
     }
 
     @concurrent

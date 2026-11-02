@@ -53,12 +53,19 @@ public struct UndoResult: Sendable, Equatable {
 
 extension SessionData {
     /// 適用の記録を末尾に追加する（`apply` の結果の `record`、または `ApplyEngine.recoverJournal()` の結果を渡す）。
-    /// 同じ `id` の記録が既にあれば追加しない（復旧の二重取り込みを防ぐ）。追加したら true。
+    /// 同じ `id` の記録が既にあれば、その記録に無い移動（同じ from が無いもの）だけを足す（復旧の二重取り込みを防ぐ）。
+    /// 仕分けの記録だけが先に取り込まれていた（適用のジャーナルを読めず、仕分けのジャーナルだけ復旧した）ときも、
+    /// `_rejected` の移動を失わないため。何か足したら true。
     @discardableResult
     public mutating func appendApplied(_ record: ApplyRecord) -> Bool {
-        guard !applied.contains(where: { $0.id == record.id }) else { return false }
-        applied.append(record)
-        return true
+        guard let i = applied.firstIndex(where: { $0.id == record.id }) else {
+            applied.append(record)
+            return true
+        }
+        let known = Set(applied[i].moves.map(\.from))
+        let added = record.moves.filter { !known.contains($0.from) }
+        applied[i].moves += added
+        return !added.isEmpty
     }
 
     /// 取り消しの結果を反映する。全部戻せたら記録を取り除き、一部だけなら残った移動だけの記録に置き換える。
@@ -72,6 +79,22 @@ extension SessionData {
             applied.remove(at: i)
         }
         return true
+    }
+
+    /// 仕分けの移動（`FolderSorter.sort` の結果、または `FolderSorter.recoverJournal()` で復旧した記録の `sortMoves`）を、
+    /// 同じ `id` の適用の記録に足す。記録が無ければ新しく末尾に足す（仕分けだけをしたとき・適用の記録の復旧前に落ちたとき）。
+    /// すでにある移動（同じ from）は足さない（復旧の二重取り込みを防ぐ）。足したら true。
+    @discardableResult
+    public mutating func appendSorted(_ record: ApplyRecord) -> Bool {
+        guard let i = applied.firstIndex(where: { $0.id == record.id }) else {
+            guard !record.sortMoves.isEmpty else { return false }
+            applied.append(ApplyRecord(id: record.id, date: record.date, moves: [], sortMoves: record.sortMoves))
+            return true
+        }
+        let known = Set(applied[i].sortMoves.map(\.from))
+        let added = record.sortMoves.filter { !known.contains($0.from) }
+        applied[i].sortMoves += added
+        return !added.isEmpty
     }
 }
 
@@ -339,23 +362,38 @@ public struct ApplyEngine: Sendable {
         removeRejectedFolderIfEmpty()
     }
 
-    /// 記録どおり元の場所へ戻す。戻し先に既にファイルがある・失敗したものは飛ばして失敗一覧に入れる。
+    /// 記録どおり元の場所へ戻す。仕分け（`sortMoves`）があれば先にそれを戻してから、`_rejected` の分を戻す。
+    /// 戻し先に既にファイルがある・失敗したものは飛ばして失敗一覧に入れる。
     /// 記録が「from = フォルダ直下の 1 要素、to = `_rejected/<1 要素>`」の形でないもの、
-    /// シンボリックリンクを解いた結果がフォルダの外を指すものは扱わない。
+    /// シンボリックリンクを解いた結果がフォルダの外を指すものは扱わない（仕分けの分の検査は `FolderSorter.undo`）。
     public func undo(_ record: ApplyRecord) -> UndoResult {
+        var sorter = FolderSorter(folder: folder)
+        sorter.mover = mover
+        let sorted = sorter.undo(record.sortMoves)
+        let rejected = undoRejected(record.moves)
+        let remainingMoves = rejected.remaining
+        let rest = remainingMoves.isEmpty && sorted.remaining.isEmpty
+            ? nil : ApplyRecord(id: record.id, date: record.date, moves: remainingMoves, sortMoves: sorted.remaining)
+        return UndoResult(restoredCount: sorted.restoredCount + rejected.restoredCount,
+                          failures: sorted.failures + rejected.failures, remainingRecord: rest)
+    }
+
+    /// `_rejected` へ移した分を戻す
+    private func undoRejected(_ moves: [MoveRecord]) -> MoveUndoResult {
         let fm = FileManager.default
         var failures: [ApplyFailure] = []
         var remaining: [MoveRecord] = []
         var restored = 0
+        guard !moves.isEmpty else { return MoveUndoResult(restoredCount: 0, failures: [], remaining: []) }
 
         // _rejected が無いなら、まず「移動後のファイルが見つかりません」を返す（パス検査より前）
         var isDir: ObjCBool = false
         guard fm.fileExists(atPath: rejectedFolder.path, isDirectory: &isDir), isDir.boolValue else {
-            let f = record.moves.map { ApplyFailure(path: $0.to, reason: "移動後のファイルが見つかりません") }
-            return UndoResult(restoredCount: 0, failures: f, remainingRecord: record.moves.isEmpty ? nil : record)
+            let f = moves.map { ApplyFailure(path: $0.to, reason: "移動後のファイルが見つかりません") }
+            return MoveUndoResult(restoredCount: 0, failures: f, remaining: moves)
         }
         let rejectedFolderIsInside = isRejectedFolderInsideFolder()
-        for mv in record.moves {
+        for mv in moves {
             guard isValidMove(mv), let from = resolve(mv.from), let to = resolve(mv.to),
                   isDirectChild(from, of: folder), isDirectChild(to, of: rejectedFolder),
                   rejectedFolderIsInside else {
@@ -383,8 +421,7 @@ public struct ApplyEngine: Sendable {
         }
 
         removeRejectedFolderIfEmpty()
-        let rest = remaining.isEmpty ? nil : ApplyRecord(id: record.id, date: record.date, moves: remaining)
-        return UndoResult(restoredCount: restored, failures: failures, remainingRecord: rest)
+        return MoveUndoResult(restoredCount: restored, failures: failures, remaining: remaining)
     }
 
     // MARK: - 内部

@@ -33,6 +33,7 @@ enum DebugScript {
                 case "undo": model.undo()
                 case "apply": model.requestApply()
                 case "confirmApply": if let plan = model.pendingApplyPlan { model.confirmApply(plan) }
+                case "confirmApplySort": if let plan = model.pendingApplyPlan { model.confirmApply(plan, sort: true) }
                 case "ok": model.notice = nil; model.failureReport = nil
                 case "quit": NSApp.terminate(nil)
                 case "undoApply": model.requestUndoApply()

@@ -442,9 +442,9 @@ struct SessionStoreTests {
         let s = try store.load()
         #expect(s.version == 99)
         #expect(s.decisions == ["a.JPG": .picked])
-        #expect(throws: SessionStoreError.unsupportedVersion(found: 99, supported: 1)) { try store.save(s) }
+        #expect(throws: SessionStoreError.unsupportedVersion(found: 99, supported: 2)) { try store.save(s) }
         // version を 1 にした別のデータでも、ディスク上が新しい版なら上書きしない
-        #expect(throws: SessionStoreError.unsupportedVersion(found: 99, supported: 1)) { try store.save(SessionData()) }
+        #expect(throws: SessionStoreError.unsupportedVersion(found: 99, supported: 2)) { try store.save(SessionData()) }
         #expect(try Data(contentsOf: url) == Data(json.utf8))
         // 読めない将来版（applied の形が違う）でもエラーにせず、退避もしない
         let weird = #"{"version":99,"decisions":{},"applied":[{"when":"x"}]}"#
@@ -606,15 +606,21 @@ struct SessionStoreTests {
         #expect(try store.load().lastViewedID == nil)
     }
 
-    @Test("save は古い version を currentVersion にそろえて書く（新しい版の拒否はそのまま）")
+    @Test("save は仕分けの記録が無ければ version 1、あれば 2 で書く（新しい版の拒否はそのまま）")
     func saveNormalizesVersion() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = SessionStore(folder: dir)
         try store.save(SessionData(version: 0, decisions: ["a.JPG": .picked]))
-        #expect(try store.load().version == SessionData.currentVersion)
-        #expect(throws: SessionStoreError.unsupportedVersion(found: 2, supported: 1)) {
-            try store.save(SessionData(version: 2))
+        #expect(try store.load().version == 1)
+        let sorted = ApplyRecord(date: Date(), moves: [], sortMoves: [MoveRecord(from: "a.JPG", to: "JPG/a.JPG")])
+        try store.save(SessionData(applied: [sorted]))
+        #expect(try store.load().version == 2)
+        // 仕分けを取り消して記録が無くなれば 1 に戻る（古い版でも開ける）
+        try store.save(SessionData(version: 2))
+        #expect(try store.load().version == 1)
+        #expect(throws: SessionStoreError.unsupportedVersion(found: 3, supported: 2)) {
+            try store.save(SessionData(version: 3))
         }
     }
 }

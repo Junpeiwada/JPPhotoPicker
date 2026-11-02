@@ -16,21 +16,37 @@ public struct ApplyRecord: Sendable, Codable, Hashable, Identifiable {
     /// 記録の ID。古い JSON に無い場合は読み込み時に生成する
     public var id: UUID
     public var date: Date
+    /// `_rejected/` への移動
     public var moves: [MoveRecord]
+    /// 適用に続けて行った仕分け（`FolderSorter`）の移動。仕分けしていなければ空（JSON には書かない）
+    public var sortMoves: [MoveRecord]
 
-    public init(id: UUID = UUID(), date: Date, moves: [MoveRecord]) {
+    public init(id: UUID = UUID(), date: Date, moves: [MoveRecord], sortMoves: [MoveRecord] = []) {
         self.id = id
         self.date = date
         self.moves = moves
+        self.sortMoves = sortMoves
     }
 
-    private enum CodingKeys: String, CodingKey { case id, date, moves }
+    /// 取り消しで戻すファイルの数
+    public var fileCount: Int { moves.count + sortMoves.count }
+
+    private enum CodingKeys: String, CodingKey { case id, date, moves, sortMoves }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         date = try c.decode(Date.self, forKey: .date)
         moves = try c.decode([MoveRecord].self, forKey: .moves)
+        sortMoves = try c.decodeIfPresent([MoveRecord].self, forKey: .sortMoves) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(date, forKey: .date)
+        try c.encode(moves, forKey: .moves)
+        if !sortMoves.isEmpty { try c.encode(sortMoves, forKey: .sortMoves) }
     }
 }
 
@@ -44,9 +60,15 @@ public struct SessionData: Sendable, Codable, Equatable {
     /// 最後に見ていたコマ ID（再開位置）。古いファイルには無い（nil）。nil なら書き出さない
     public var lastViewedID: String?
 
-    public static let currentVersion = 1
+    /// 読み書きできる最も新しい version。2 は仕分けの記録（`ApplyRecord.sortMoves`）を持つファイル
+    public static let currentVersion = 2
 
-    public init(version: Int = SessionData.currentVersion,
+    /// 書き出すときの version。仕分けの記録があるときだけ 2 にし、無ければ 1 のまま書く。
+    /// 古い版（version 1 まで）は `sortMoves` を知らず、上書き保存で黙って消してしまう（JPG/ RAW/ Del/ の分を取り消せなくなる）ので、
+    /// そのファイルを古い版では読み取り専用で開かせるため。仕分けを使わないフォルダは古い版でも今までどおり読み書きできる
+    var versionToWrite: Int { applied.contains { !$0.sortMoves.isEmpty } ? 2 : 1 }
+
+    public init(version: Int = 1,
                 decisions: [String: Decision] = [:],
                 applied: [ApplyRecord] = [],
                 lastViewedID: String? = nil) {
@@ -208,7 +230,7 @@ public struct SessionStore: Sendable {
 
     /// アトミックに書き込む。
     /// 保存しようとするデータ、またはディスク上の既存ファイルが `currentVersion` より新しければ
-    /// `SessionStoreError.unsupportedVersion` を投げて書かない。古い version（0 など）は `currentVersion` にそろえて書く。
+    /// `SessionStoreError.unsupportedVersion` を投げて書かない。version は中身から決める（`versionToWrite`。仕分けの記録があれば 2、無ければ 1）。
     public func save(_ session: SessionData) throws {
         if session.version > SessionData.currentVersion {
             throw SessionStoreError.unsupportedVersion(found: session.version, supported: SessionData.currentVersion)
@@ -222,7 +244,7 @@ public struct SessionStore: Sendable {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         var normalized = session
-        normalized.version = max(session.version, SessionData.currentVersion)
+        normalized.version = session.versionToWrite
         let data = try encoder.encode(normalized)
         try data.write(to: fileURL, options: .atomic)
     }

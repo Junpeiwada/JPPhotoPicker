@@ -523,6 +523,34 @@ final class BrowserModel {
                 + "取り消せない適用が残っている可能性があります。\(ApplyEngine.rejectedFolderName) フォルダを確認してください。"
                 + "記録が残っている間は、新しい適用はできません。")
         }
+        // 前回の仕分けが途中で終わっていたら、同じ適用の記録に足して保存する（適用の記録の復旧より後に行う）
+        let sortFolders = FolderSorter.folderNames.joined(separator: "・")
+        switch outcome.sortRecovery {
+        case .none:
+            break
+        case .recovered(let record):
+            let added = session.appendSorted(record)
+            if persist() {
+                FolderSorter(folder: folder).clearJournal()
+                if added {
+                    messages.append("前回の仕分けが途中で終わっていたため、仕分け済みの \(record.sortMoves.count) ファイルの記録を復旧しました。「適用を取り消す」で元に戻せます。")
+                }
+            } else if added {
+                messages.append("前回の仕分けが途中で終わっていました（仕分け済み \(record.sortMoves.count) ファイル）。記録を保存できなかったため、次に開いたときにもう一度復旧します。")
+            }
+        case .broken(let backup):
+            messages.append("前回の仕分けの記録が壊れていたため、\(backup.lastPathComponent) に退避しました。"
+                + "この仕分けで \(sortFolders) フォルダに移したファイルは「適用を取り消す」で戻せない可能性があります。"
+                + "必要なら手で戻してください。")
+        case .unreadable(let reason):
+            messages.append("前回の仕分けの記録を確認できませんでした（\(reason)）。"
+                + "取り消せない仕分けが残っている可能性があります。\(sortFolders) フォルダを確認してください。"
+                + "記録が残っている間は、新しい仕分けはできません。")
+        }
+        // 仕分け済みで写真が直下に残っていないフォルダは、空の理由と戻し方を出す
+        if entries.isEmpty, errorMessage == nil, session.applied.last?.sortMoves.isEmpty == false {
+            errorMessage = "仕分け済みのフォルダです（写真は \(sortFolders) フォルダにあります）。\nメニューの「適用を取り消す…」で元に戻せます。"
+        }
         // 保存できていなかった内容を引き継いだときは、読み直した後で保存し直す
         if carryUnsaved, !isSessionReadOnly { scheduleSave() }
         // ファイルに再開位置が無ければ、今のコマ（先頭）を保存済みとみなす。開いただけで 1 コマも送らずに
@@ -1004,24 +1032,25 @@ final class BrowserModel {
 
     // MARK: 適用（一括移動）と取り消し
 
-    /// 「適用」。移動予定を作り、確認ダイアログを出す（0 件ならその旨を知らせる）。
+    /// 「適用」。移動予定を作り、確認ダイアログを出す（移すコマが無いときは、仕分けだけを選べるダイアログになる）。
     func requestApply() {
         guard hasEntries, isInteractive else { return }
         if let reason = applyDisabledReason {
             notice = reason
             return
         }
-        let plan = ApplyEngine.plan(groups: groups, decisions: book.decisions)
-        if plan.isEmpty {
-            notice = "移動するファイルはありません"
-        } else {
-            pendingApplyPlan = plan
-        }
+        pendingApplyPlan = ApplyEngine.plan(groups: groups, decisions: book.decisions)
     }
 
-    /// 確認後に `_rejected` へ移す。実行はバックグラウンド。
+    /// 採用した RAW だけのコマの数（仕分けると Del/ に入るので、確認ダイアログで知らせる）
+    var pickedRawOnlyCount: Int {
+        entries.filter { $0.item.jpgURL == nil && book.decision(for: $0.id) == .picked }.count
+    }
+
+    /// 確認後に `_rejected` へ移す。`sort` なら続けて、残った写真を JPPhotoTools の［仕分けを実行］と同じく
+    /// JPG/ RAW/ Del/ に分ける。実行はバックグラウンド。
     /// 確認したときの予定と今の判定から作り直した予定が違えば、実行せずダイアログを出し直す。
-    func confirmApply(_ plan: ApplyPlan) {
+    func confirmApply(_ plan: ApplyPlan, sort: Bool = false) {
         guard let folder = folderURL, !isBusy, !isSessionReadOnly else { return }
         let fresh = ApplyEngine.plan(groups: groups, decisions: book.decisions)
         guard fresh == plan else {
@@ -1030,31 +1059,42 @@ final class BrowserModel {
             Task { [weak self] in
                 try? await Task.sleep(for: .milliseconds(300))
                 guard let self, self.folderURL == folder, self.isInteractive else { return }
-                if fresh.isEmpty { self.notice = "移動するファイルはありません" } else { self.pendingApplyPlan = fresh }
+                self.pendingApplyPlan = fresh
             }
             return
         }
+        // 移すものも仕分けもないときは何もしない（ダイアログには移すボタンを出さないので、ふつうは来ない）
+        guard !plan.isEmpty || sort else {
+            pendingApplyPlan = nil
+            return
+        }
         pendingApplyPlan = nil
-        busyMessage = "\(ApplyEngine.rejectedFolderName) に移動しています…"
+        busyMessage = plan.isEmpty ? "仕分けしています…"
+            : sort ? "\(ApplyEngine.rejectedFolderName) に移動して仕分けしています…"
+            : "\(ApplyEngine.rejectedFolderName) に移動しています…"
         Task { [weak self] in
-            let result = await SessionIO.apply(folder: folder, plan: plan)
-            self?.finishApply(result: result, folder: folder)
+            let outcome = await SessionIO.apply(folder: folder, plan: plan, sort: sort)
+            self?.finishApply(outcome: outcome, folder: folder)
         }
     }
 
-    private func finishApply(result: ApplyResult, folder: URL) {
+    private func finishApply(outcome: ApplyOutcome, folder: URL) {
         defer { endBusy() }
         guard folderURL == folder else { return }
+        let result = outcome.apply
 
         // 一覧を作り直す前に、今の判定を保存データに書き戻す（移すのは採用していないコマなので、移したコマの判定は無い）。
         // 画面の book は残ったコマで作り直し、取り消し履歴（DecisionHistory）は空になる。
         session.decisions = currentSession().decisions
         if let record = result.record { session.appendApplied(record) }
+        // 仕分けの移動は同じ適用の記録に足す（何も移さず仕分けだけをしたときは、仕分けだけの記録になる）
+        let sortRecord = outcome.sortRecord
+        if let sortRecord { session.appendSorted(sortRecord) }
 
         var reopen = false
         var reopenID: String?
-        if let record = result.record {
-            let movedNames = Set(record.moves.map { ($0.from as NSString).lastPathComponent })
+        if let record = session.applied.last(where: { $0.id == (result.record?.id ?? sortRecord?.id) }) {
+            let movedNames = Set((record.moves + record.sortMoves).map { ($0.from as NSString).lastPathComponent })
             var removedIDs = Set<String>()
             var partial = false
             for item in entries.map(\.item) {
@@ -1068,17 +1108,32 @@ final class BrowserModel {
                 reopen = true
                 reopenID = nearestSurvivorID(excluding: removedIDs)
             } else {
-                removeItems(ids: removedIDs)
+                removeItems(ids: removedIDs, emptyMessage: outcome.sort.map(Self.sortedMessage))
             }
         }
         // 失敗一覧を先に出す（保存失敗などの通知は、失敗一覧を閉じた後で出る）
         showFailures(result.failures,
                      title: "一部のファイルを移動できませんでした",
                      done: result.movedCount, doneLabel: "移動しました")
-        // 記録を保存できたら、適用のジャーナルを片付ける（保存できなければ残して、次回の起動で復旧する）
-        if result.record != nil, persist() { ApplyEngine(folder: folder).clearJournal() }
+        if let sort = outcome.sort {
+            showFailures(sort.failures,
+                         title: "一部のファイルを仕分けできませんでした",
+                         done: sort.moves.count, doneLabel: "仕分けしました")
+        }
+        if let reason = outcome.sortSkippedReason { post(notice: reason) }
+        // 記録を保存できたら、適用・仕分けのジャーナルを片付ける（保存できなければ残して、次回の起動で復旧する）
+        if result.record != nil || sortRecord != nil, persist() {
+            if result.record != nil { ApplyEngine(folder: folder).clearJournal() }
+            if sortRecord != nil { FolderSorter(folder: folder).clearJournal() }
+        }
         // 保存に失敗していても、メモリ上の判定と適用の記録を引き継いで読み直す
         if reopen { open(folder: folder, selecting: reopenID, carrying: session) }
+    }
+
+    /// 仕分けて写真が直下に無くなったときに出す文
+    private static func sortedMessage(_ sort: SortResult) -> String {
+        "仕分けしました（\(FolderSorter.jpgFolderName) \(sort.jpgCount) 枚・\(FolderSorter.rawFolderName) \(sort.rawCount) 枚・"
+            + "\(FolderSorter.orphanFolderName) \(sort.orphanCount) 枚）。\nメニューの「適用を取り消す…」で元に戻せます。"
     }
 
     /// 今のコマ、無ければその前後で最も近い、`ids` に入っていないコマの ID
@@ -1107,7 +1162,8 @@ final class BrowserModel {
     }
 
     /// 移したコマを一覧から取り除く。今のコマが消えたときは近くの残ったコマへ。
-    private func removeItems(ids: Set<String>) {
+    /// 全部無くなったときは `emptyMessage`（無ければ「すべて _rejected に移した」）を出す。
+    private func removeItems(ids: Set<String>, emptyMessage: String? = nil) {
         guard !ids.isEmpty else { return }
         let oldIndex = currentIndex
         let currentID = currentItem?.id
@@ -1124,7 +1180,7 @@ final class BrowserModel {
             currentIndex = 0
             displayPreview = nil
             clearScreen()
-            errorMessage = "すべての写真を \(ApplyEngine.rejectedFolderName) に移動しました。"
+            errorMessage = emptyMessage ?? "すべての写真を \(ApplyEngine.rejectedFolderName) に移動しました。"
             return
         }
         if let currentID, let i = indexByID[currentID] {

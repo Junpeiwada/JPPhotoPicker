@@ -36,7 +36,7 @@ GUI を目視せずに動作を確かめる仕組み。
   -debugScript "wait,z,next,p,log:/tmp/state.txt,snap:/tmp/shot.png,quit"
 ```
 
-ステップ: `wait` `next` `prev` `nextGroup` `z` `esc` `f` `i` `p` `undo` `apply` `confirmApply` `undoApply` `confirmUndoApply` `ok` `quit` `open:<パス>` `goto:<id>` `log:<ファイル>`（モデル状態を1行追記） `snap:<png>`（ウインドウ画像を保存）。
+ステップ: `wait` `next` `prev` `nextGroup` `z` `esc` `f` `i` `p` `undo` `apply` `confirmApply` `confirmApplySort` `undoApply` `confirmUndoApply` `ok` `quit` `open:<パス>` `goto:<id>` `log:<ファイル>`（モデル状態を1行追記） `snap:<png>`（ウインドウ画像を保存）。
 
 ## 構成
 
@@ -46,7 +46,7 @@ GUI を目視せずに動作を確かめる仕組み。
 
 - `Metadata/` — exiftool に依存しない自前パーサー。JPEG の先頭（APP1 / APP2 MPF）だけを読み、Exif・Orientation・IFD1 サムネイル位置・MPF プレビュー位置と Sony MakerNote（`ReleaseMode` / `SequenceNumber` / `FocusLocation` / `FocusFrameSize`）を取り出す。ARW / ORF は `RAWMetadataReader` が TIFF 構造から同じ情報を読む。`FocusFrameSize` / `FocusLocation` は型宣言が undefined のことがあるため u16 として生読みしている。オリンパスは `OlympusMakerNote` が `AFPointSelected`（4:3 の比率）・埋め込みプレビュー・`AspectFrame` を読む
 - `Geometry/FocusGeometry` — フォーカス位置を 0〜1 の比率にし、Orientation に合わせて変換する（座標はセンサー向きで記録されている）。オリンパスの点は 4:3 の座標系から画像の縦横比へ中央切り出しで換算し、短辺 6% の固定枠にする
-- `Library/` — `FolderScanner`（JPG と RAW（ARW / ORF）のペア付け、大文字小文字無視。`rawURL` / `PhotoKind.rawOnly`）→ `BurstGrouper`（連写グループ化）→ `Decision`/`DecisionHistory`（判定と取り消し履歴、`DecisionBook`）→ `SessionStore`（`.jpphotopicker.json`。判定・適用の記録・最後に見ていたコマ `lastViewedID` を持つ。version 付き。新しい版のファイルは読み取り専用扱い）→ `ApplyEngine`（`_rejected/` への一括移動と取り消し）
+- `Library/` — `FolderScanner`（JPG と RAW（ARW / ORF）のペア付け、大文字小文字無視。`rawURL` / `PhotoKind.rawOnly`）→ `BurstGrouper`（連写グループ化）→ `Decision`/`DecisionHistory`（判定と取り消し履歴、`DecisionBook`）→ `SessionStore`（`.jpphotopicker.json`。判定・適用の記録・最後に見ていたコマ `lastViewedID` を持つ。version 付き。新しい版のファイルは読み取り専用扱い）→ `ApplyEngine`（`_rejected/` への一括移動と取り消し）→ `FolderSorter`（適用に続けて JPPhotoTools の［仕分けを実行］と同じ決まりで JPG/ RAW/ Del/ に分ける。記録は `ApplyRecord.sortMoves`、取り消しは `ApplyEngine.undo` がまとめて戻す）
 - `Viewer/` — `ZoomState`（全体 / 100% / 200% / ピンチ倍率、コマ移動時の位置保持ルール）と `ViewportGeometry`
 - `Metadata/PhotoInfo` — 情報パネルに出す撮影情報。ImageIO のプロパティ辞書から主要項目（機種・レンズ・露出など）を整形し、自前パーサーで読んだ Sony MakerNote の値を足す
 - `Library/RecentFolders` — 最近開いたフォルダの履歴（新しい順、同じフォルダは1件にまとめ、上限10件）。UserDefaults に JSON で保存する
